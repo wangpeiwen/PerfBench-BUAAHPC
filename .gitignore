@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 编辑器临时文件
+.vscode/
+*.swp
+*.swo
+*~
+
+# 日志文件
+logs/
+*.log
+
+# 构建目录
+build/
+dist/
+*.egg-info/
+
+# 系统文件
+.DS_Store
+Thumbs.db
