@@ -4,6 +4,7 @@
 import os
 import platform
 import shutil
+import time
 from perfbench.utils.logger import get_logger
 from perfbench.utils.system_checker import check_slurm_environment, get_architecture
 

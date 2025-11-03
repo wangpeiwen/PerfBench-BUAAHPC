@@ -21,6 +21,7 @@ def process_slurm_script(script_path, interval, output_path):
     - 生成监控脚本
     - 提交作业
     """
+    # 增加进度展示
     logger.info(f"开始处理SLURM脚本: {script_path}")
     
     # 验证输入文件存在
@@ -38,8 +39,8 @@ def process_slurm_script(script_path, interval, output_path):
     # 生成修改后的脚本（只做最小的环境注入，实际监控在登录节点运行）
     modified_script = monitoring.generate_monitoring_script(script_path, script_info, interval, job_dir)
 
-    # 复制修改后的脚本到输出目录
-    output_script = os.path.join(job_dir, "run.slurm")
+    # 复制修改后的脚本到script目录
+    output_script = os.path.join(script_path, "run.slurm")
     shutil.copy2(modified_script, output_script)
 
     # 提交作业并获取 jobid
