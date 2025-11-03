@@ -39,8 +39,9 @@ def process_slurm_script(script_path, interval, output_path):
     # 生成修改后的脚本（只做最小的环境注入，实际监控在登录节点运行）
     modified_script = monitoring.generate_monitoring_script(script_path, script_info, interval, job_dir)
 
-    # 复制修改后的脚本到script目录
-    output_script = os.path.join(script_path, "run.slurm")
+    # 复制修改后的脚本到script目录：script_path需要进一步处理为目录
+    script_dir = os.path.dirname(script_path)
+    output_script = os.path.join(script_dir, "run.slurm")
     shutil.copy2(modified_script, output_script)
 
     # 提交作业并获取 jobid
