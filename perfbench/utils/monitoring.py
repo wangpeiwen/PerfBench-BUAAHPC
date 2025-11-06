@@ -76,24 +76,28 @@ OUTDIR={output_dir}
 mkdir -p "$OUTDIR"
 
 while true; do
-  ts=$(date +%Y%m%d_%H%M%S)
-  # sacct 输出（汇总）
-  sacct -j $JOBID --format=JobID,JobName%20,State,Elapsed,MaxRSS,AllocCPUs -P > "$OUTDIR/sacct_$ts.log" 2>&1
-  # seff 输出（效率）
-  seff $JOBID > "$OUTDIR/seff_$ts.log" 2>&1 || true
-  # sinfo 当前集群节点状态
-  sinfo -N -o "%N %t %f" > "$OUTDIR/sinfo_$ts.log" 2>&1 || true
-  # sstat（步骤级别资源）
-  sstat -j $JOBID --format=JobID,MaxRSS,AveRSS,MaxVMSize -P > "$OUTDIR/sstat_$ts.log" 2>&1 || true
+    ts=$(date +%Y%m%d_%H%M%S)
+    # sacct 输出（汇总）
+    sacct -j $JOBID --format=JobID,JobName%20,State,Elapsed,MaxRSS,AllocCPUs -P > "$OUTDIR/sacct_$ts.log" 2>&1
+    # seff 输出（效率）
+    seff $JOBID > "$OUTDIR/seff_$ts.log" 2>&1 || true
+    # sinfo 当前集群节点状态
+    sinfo -N -o "%N %t %f" > "$OUTDIR/sinfo_$ts.log" 2>&1 || true
+    # sstat（步骤级别资源）
+    sstat -j $JOBID --format=JobID,MaxRSS,AveRSS,MaxVMSize -P > "$OUTDIR/sstat_$ts.log" 2>&1 || true
+    # scontrol 节点资源
+    scontrol show job $JOBID > "$OUTDIR/scontrol_$ts.log" 2>&1 || true
 
-  # 检查作业状态，若终止则退出循环
-  state=$(sacct -j $JOBID -n -o State -P | head -n1)
-  if [[ "$state" =~ "COMPLETED" || "$state" =~ "FAILED" || "$state" =~ "CANCELLED" || "$state" =~ "TIMEOUT" ]]; then
-    echo "Job $JOBID finished with state $state at $ts" > "$OUTDIR/job_end_$ts.log"
-    break
-  fi
+    # 检查作业状态，若终止则退出循环
+    state=$(sacct -j $JOBID -n -o State -P | head -n1)
+    # 检查作业是否还在队列中（squeue）
+    inqueue=$(squeue -j $JOBID -h | wc -l)
+    if [[ "$state" =~ "COMPLETED" || "$state" =~ "FAILED" || "$state" =~ "CANCELLED" || "$state" =~ "TIMEOUT" || $inqueue -eq 0 ]]; then
+        echo "Job $JOBID finished with state $state at $ts (squeue empty: $inqueue)" > "$OUTDIR/job_end_$ts.log"
+        break
+    fi
 
-  sleep $INTERVAL
+    sleep $INTERVAL
 done
 """
 
@@ -101,8 +105,6 @@ done
         f.write(script)
     os.chmod(monitor_sh, 0o755)
 
-    # 使用 nohup 将其放到后台运行并记录 pid
-    # 使用 subprocess 启动以便获得 pid
     import subprocess
     p = subprocess.Popen([monitor_sh], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     with open(monitor_pid, 'w') as f:

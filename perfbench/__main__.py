@@ -11,6 +11,7 @@ from perfbench.core.initializer import initialize_environment
 from perfbench.core.script_processor import process_slurm_script
 from perfbench.core.validator import validate_environment
 from perfbench.utils.logger import setup_logging
+from perfbench.utils.progress_bar import StepProgress
 
 
 def parse_arguments():
@@ -30,6 +31,16 @@ def main():
     args = parser.parse_args()
     logger = setup_logging()
 
+    # CLI主流程进度条步骤
+    steps = [
+        "读取用户提交脚本",
+        "监控脚本生成中",
+        "作业提交",
+        "监控中",
+        "监控完成"
+    ]
+    progress = StepProgress(steps)
+
     try:
         if args.init:
             initialize_environment(force=args.force)
@@ -43,7 +54,17 @@ def main():
             if not args.interval or not args.output:
                 logger.error("请提供采集间隔(-t)和输出目录(-o)参数")
                 sys.exit(1)
-            process_slurm_script(args.script, args.interval, args.output)
+            progress.next()  # 1. 读取用户提交脚本
+            # 解析和生成监控脚本
+            progress.next("监控脚本生成中")  # 2. 监控脚本生成中
+            # process_slurm_script 内部包含所有后续步骤
+            job_dir = process_slurm_script(args.script, args.interval, args.output)
+            progress.next("作业提交")  # 3. 作业提交
+            # 监控中（此处为启动监控脚本后）
+            progress.next("监控中")  # 4. 监控中
+            # 监控完成（此处可根据后处理或监控脚本退出信号完善）
+            progress.finish()  # 5. 监控完成
+            logger.info(f"PerfBench流程已完成，输出目录: {job_dir}")
             return
 
         # 如果没有提供任何参数，显示帮助信息
