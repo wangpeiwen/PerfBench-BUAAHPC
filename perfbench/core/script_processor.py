@@ -54,7 +54,7 @@ def process_slurm_script(script_path, interval, output_path):
         logger.warning(f"启动登录节点监控失败: {e}")
     
     logger.info(f"作业处理完成，输出目录: {job_dir}")
-    return job_dir
+    return job_dir, script_info
 
 def submit_job(script_path: str) -> str:
     """
