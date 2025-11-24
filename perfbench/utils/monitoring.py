@@ -79,8 +79,6 @@ while true; do
     ts=$(date +%Y%m%d_%H%M%S)
     # sacct 输出（汇总）
     sacct -j $JOBID --format=JobID,JobName%20,State,Elapsed,MaxRSS,AllocCPUs -P > "$OUTDIR/sacct_$ts.log" 2>&1
-    # seff 输出（效率）
-    seff $JOBID > "$OUTDIR/seff_$ts.log" 2>&1 || true
     # sinfo 当前集群节点状态
     sinfo -N -o "%N %t %f" > "$OUTDIR/sinfo_$ts.log" 2>&1 || true
     # sstat（步骤级别资源）
@@ -93,6 +91,8 @@ while true; do
     # 检查作业是否还在队列中（squeue）
     inqueue=$(squeue -j $JOBID -h | wc -l)
     if [[ "$state" =~ "COMPLETED" || "$state" =~ "FAILED" || "$state" =~ "CANCELLED" || "$state" =~ "TIMEOUT" || $inqueue -eq 0 ]]; then
+        # seff 只在作业结束后调用一次
+        seff $JOBID > "$OUTDIR/seff_$ts.log" 2>&1 || true
         echo "Job $JOBID finished with state $state at $ts (squeue empty: $inqueue)" > "$OUTDIR/job_end_$ts.log"
         break
     fi
