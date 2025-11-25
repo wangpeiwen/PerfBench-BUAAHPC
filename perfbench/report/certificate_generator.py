@@ -19,8 +19,10 @@ AXIS_COLOR = black      # 轴线和坐标文字颜色
 FONT_SIZE = 6           # 坐标标注字号
 
 # 默认字体路径（可以根据需要修改）
-DEFAULT_FONT_PATH = "Arial.ttf"
+HERE = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_FONT_PATH = os.path.join(HERE, "Arial.ttf")
 DEFAULT_FONT_NAME = "CJKFont"
+DEFAULT_OUT_DIR = os.path.join(HERE, "output")
 
 def create_overlay(page_width, page_height, overrides_for_page, font_path=DEFAULT_FONT_PATH, font_name=DEFAULT_FONT_NAME):
     """
@@ -42,7 +44,7 @@ def create_overlay(page_width, page_height, overrides_for_page, font_path=DEFAUL
         # 2. 写文本（黑色）
         c.setFillColor(black)
         # 注意：ReportLab 的原点也是左下
-        c.drawString(x + 2, y + h / 2 - 4, text)
+        c.drawString(x + 2, y + h / 2 - 4, str(text))
 
     c.save()
     packet.seek(0)
@@ -106,7 +108,7 @@ def create_grid_overlay(page_width, page_height):
     packet.seek(0)
     return PdfReader(packet).pages[0]
 
-def generate_certificate(report_info, out_dir, input_template="certificate.pdf", font_path=DEFAULT_FONT_PATH):
+def generate_certificate(report_info, out_dir=DEFAULT_OUT_DIR, input_template="certificate.pdf", font_path=DEFAULT_FONT_PATH):
     """
     生成性能测试证书海报
     
@@ -135,8 +137,7 @@ def generate_certificate(report_info, out_dir, input_template="certificate.pdf",
             template_path = input_template
         else:
             # 尝试使用脚本所在目录
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            template_path = os.path.join(script_dir, input_template)
+            template_path = os.path.join(HERE, input_template)
             if not os.path.exists(template_path):
                 raise FileNotFoundError(f"找不到模板文件: {input_template}")
     else:
