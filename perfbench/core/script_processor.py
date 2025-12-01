@@ -9,11 +9,13 @@ from datetime import datetime
 from perfbench.utils.logger import get_logger
 from perfbench.utils.script_parser import parse_slurm_script
 from perfbench.utils import monitoring
+from perfbench.utils import scheduler
+from perfbench.utils.system_checker import detect_scheduler
 
 logger = get_logger()
 
 
-def process_slurm_script(script_path, interval, output_path):
+def process_slurm_script(script_path, interval, output_path, wait=False):
     """
     处理SLURM脚本
     - 解析原始脚本
@@ -33,72 +35,68 @@ def process_slurm_script(script_path, interval, output_path):
     job_dir = os.path.join(output_path, f"perfbench_{timestamp}")
     os.makedirs(job_dir, exist_ok=True)
     
-    # 解析原始脚本
-    script_info = parse_slurm_script(script_path)
+    # 检测调度器并根据调度器选择脚本解析方式
+    scheduler_type = detect_scheduler() or 'slurm'
+    script_info = None
+    try:
+        from perfbench.utils.script_parser import parse_script
+        script_info = parse_script(script_path, scheduler=scheduler_type)
+    except Exception:
+        # 回退到 slurm 解析以保持兼容
+        script_info = parse_slurm_script(script_path)
     
     # 生成修改后的脚本（只做最小的环境注入，实际监控在登录节点运行）
-    modified_script = monitoring.generate_monitoring_script(script_path, script_info, interval, job_dir)
+    scheduler_type = detect_scheduler()
+    if scheduler_type == 'lsf':
+        from perfbench.utils import monitor_sunway as sunway_monitor
+        modified_script = sunway_monitor.generate_monitoring_script(script_path, script_info, interval, job_dir)
+    else:
+        modified_script = monitoring.generate_monitoring_script(script_path, script_info, interval, job_dir)
 
-    # 复制修改后的脚本到script目录：script_path需要进一步处理为目录
+    # 复制修改后的脚本到script目录
     script_dir = os.path.dirname(script_path)
-    output_script = os.path.join(script_dir, "run.slurm")
+    # 不再使用固定文件名 run.slurm，避免覆盖用户文件
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    scheduler_type = detect_scheduler()
+    if scheduler_type == 'lsf':
+        output_script = os.path.join(script_dir, f"run.perfbench_{timestamp}.sh")
+    else:
+        output_script = os.path.join(script_dir, f"run.perfbench_{timestamp}.slurm")
     shutil.copy2(modified_script, output_script)
 
-    # 提交作业并获取 jobid
-    jobid = submit_job(output_script)
+    # 提交作业并获取 jobid（根据集群类型自动选择提交方式）
+    jobid = scheduler.submit_job(output_script)
 
     # 在登录节点启动监控器（使用 sacct/seff/sinfo）
     try:
-        monitoring.start_monitoring_on_login(jobid, interval, job_dir)
+        # 根据调度器类型选择相应的监控脚本生成器/启动器
+        if scheduler_type == 'lsf':
+                # Sunway/LSF 系统（cnload / bjobs），把 master_cores 和 cgsp 参数传递给监控脚本
+                from perfbench.utils import monitor_sunway as sunway_monitor
+                mc = script_info.get('master_cores') if script_info else None
+                cgsp = None
+                # 尝试从脚本命令中查找 cgsp 或 -cgsp 设定
+                if script_info and 'commands' in script_info:
+                    for c in script_info['commands']:
+                        if 'cgsp' in c or '-cgsp' in c:
+                            cgsp = c
+                            break
+                sunway_monitor.start_monitoring_on_login(jobid, interval, job_dir, master_cores=mc, cgsp=cgsp)
+        else:
+            monitoring.start_monitoring_on_login(jobid, interval, job_dir)
     except Exception as e:
         logger.warning(f"启动登录节点监控失败: {e}")
     
+    # 如果用户选择等待作业完成，则阻塞并等待
+    if wait:
+        logger.info(f"等待作业 {jobid} 完成...")
+        scheduler.wait_for_job_completion(jobid, poll_interval=interval, scheduler=scheduler_type)
+        logger.info(f"作业 {jobid} 已完成。")
+        # 如果是 LSF (Sunway), 可以自动后处理 cnload 位图数据
+        if scheduler_type == 'lsf':
+            from perfbench.utils.result_handler import postprocess_cnload_job
+            csv_path = postprocess_cnload_job(job_dir, interval=interval)
+            logger.info(f"cnload 后处理完成，CSV 路径: {csv_path}")
+
     logger.info(f"作业处理完成，输出目录: {job_dir}")
     return job_dir, script_info
-
-def submit_job(script_path: str) -> str:
-    """
-    提交SLURM作业并返回jobid
-    - 提交前切换到脚本所在目录，保证相对路径与手动提交一致
-    - 提交后切回原工作目录，不影响后续流程
-    - 完善错误处理，输出详细报错信息
-    """
-    # 转换为绝对路径，避免相对路径歧义
-    script_path = os.path.abspath(script_path)
-    script_dir = os.path.dirname(script_path)
-    script_name = os.path.basename(script_path)
-    original_cwd = os.getcwd()  # 保存原始工作目录
-    
-    try:
-        # 切换到脚本所在目录提交作业（模拟手动在脚本目录执行sbatch）
-        os.chdir(script_dir)
-        logger.info(f"提交作业 -> 目录: {script_dir}，脚本: {script_name}")
-        
-        # 执行sbatch命令提交作业
-        result = subprocess.run(
-            ['sbatch', script_name],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=True  # 提交失败时抛出CalledProcessError
-        )
-        
-        # 解析jobid（sbatch标准输出格式：Submitted batch job 123456）
-        output = result.stdout.strip()
-        jobid_match = re.search(r"Submitted batch job (\d+)", output)
-        if not jobid_match:
-            logger.error(f"无法从sbatch输出中解析jobid: {output}")
-            raise RuntimeError(f"作业提交成功，但无法解析jobid（输出: {output}）")
-        
-        jobid = jobid_match.group(1)
-        logger.info(f"作业提交成功，jobid: {jobid}")
-        return jobid
-    
-    except subprocess.CalledProcessError as e:
-        # sbatch提交失败（脚本格式错误、资源不足等）
-        error_msg = f"sbatch提交失败: {e.stderr.strip()}"
-        logger.error(error_msg)
-        raise RuntimeError(error_msg) from e
-    finally:
-        # 无论提交成功与否，切回原始工作目录
-        os.chdir(original_cwd)

@@ -55,6 +55,44 @@ def check_slurm_commands():
             return False
     return True
 
+
+def check_lsf_commands():
+    """
+    检查 LSF（神威）相关命令是否可用
+    """
+    commands = ['bsub', 'bjobs', 'bkill']
+    for cmd in commands:
+        try:
+            result = subprocess.run(['which', cmd], 
+                                 stdout=subprocess.PIPE, 
+                                 stderr=subprocess.PIPE)
+            if result.returncode != 0:
+                logger.warning(f"未找到命令: {cmd}")
+                return False
+        except Exception as e:
+            logger.error(f"检查命令时出错 {cmd}: {str(e)}")
+            return False
+    return True
+
+
+def detect_scheduler():
+    """
+    检测集群调度器类型: 返回 'slurm' | 'lsf' | None
+    """
+    # 优先检测 SLURM 命令
+    try:
+        if check_slurm_commands():
+            return 'slurm'
+    except Exception:
+        pass
+    # 然后检测 LSF
+    try:
+        if check_lsf_commands():
+            return 'lsf'
+    except Exception:
+        pass
+    return None
+
 def get_architecture():
     """
     获取系统架构信息

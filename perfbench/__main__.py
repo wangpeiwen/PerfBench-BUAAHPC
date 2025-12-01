@@ -27,6 +27,7 @@ def parse_arguments():
     parser.add_argument('-v', action='store_true', help='运行工具适配性测试')
     parser.add_argument('--force', action='store_true', help='跳过 SLURM 环境检测（仅用于调试）')
     parser.add_argument('--version', action='version', version='%(prog)s 1.0.0')
+    parser.add_argument('--wait', action='store_true', help='等待作业结束并在结束后进行后处理（如果适用）')
     return parser
 
 
@@ -64,7 +65,7 @@ def main():
             # 解析和生成监控脚本
             progress.next("监控脚本生成中")  # 2. 监控脚本生成中
             # process_slurm_script 内部包含所有后续步骤（除了报告生成）
-            job_dir, script_info = process_slurm_script(args.script, args.interval, args.output)
+            job_dir, script_info = process_slurm_script(args.script, args.interval, args.output, wait=args.wait)
             """
             info = {
                 'job_name': None,
@@ -98,19 +99,65 @@ def main():
 
 def generate_certificate_for_test(logger, job_dir, script_info, args):
     platform_config = get_platform_config() # 获取平台配置-platform_config.yaml
+    from perfbench.utils.system_checker import detect_scheduler
+    scheduler_type = detect_scheduler()
 
-    parallelism_info = calculate_parallelism(platform_name=platform_config['platform_name'], node_num=script_info['nodes'])
+    if not platform_config:
+        logger.error('未能读取平台配置(platform_config.yaml)，将使用默认值进行计算')
+        platform_config = {'platform_name': 'unknown', 'compared_cores': 5, 'compared_run_time': 60}
+
+    parallelism_info = calculate_parallelism(
+        platform_name=platform_config['platform_name'],
+        node_num=script_info.get('nodes', 1),
+        master_cores=script_info.get('master_cores')
+    )
+    # 如果是 LSF (Sunway)，并且脚本信息包含 master_cores，那么优先根据 master_cores 估算 core_num
+    if scheduler_type == 'lsf' and script_info.get('master_cores'):
+        try:
+            m_cores = int(script_info.get('master_cores', 0))
+            nodes = int(script_info.get('nodes', 1))
+            core_num = m_cores * 64 * nodes
+            parallelism_info = {'core_num': core_num, 'method': f"nodes * master_cores(={m_cores}) * 64"}
+        except Exception:
+            pass
+    if not parallelism_info:
+        parallelism_info = {'core_num': 1, 'method': 'unknown'}
+    # ensure core_num is a valid integer
+    try:
+        core_num_val = int(parallelism_info.get('core_num', 1) or 1)
+        if core_num_val <= 0:
+            core_num_val = 1
+        parallelism_info['core_num'] = core_num_val
+    except Exception:
+        parallelism_info['core_num'] = 1
     logger.info(f"计算得到的并行度: {parallelism_info}")
             
-    # 解析sacct结果
-    sacct_result = Result(cmd_name="sacct", out_dir=job_dir, interval=args.interval)
-    sacct_result.parse_sacct()
-    elapsed_time = sacct_result.get_elapsed_time() # 本次作业的运行时间
+    # 根据调度器决定解析方式
+    if scheduler_type == 'lsf':
+        # 解析 cnload 位图日志
+        from perfbench.utils.result_handler import postprocess_cnload_job
+        csv_path = postprocess_cnload_job(job_dir, interval=args.interval)
+        cnres = Result(cmd_name='cnload', out_dir=job_dir, interval=args.interval)
+        cnres.parse_cnload_bitmap()
+        elapsed_time = cnres.get_elapsed_time()
+    else:
+        # 默认：使用 sacct 解析
+        sacct_result = Result(cmd_name="sacct", out_dir=job_dir, interval=args.interval)
+        sacct_result.parse_sacct()
+        elapsed_time = sacct_result.get_elapsed_time() # 本次作业的运行时间
             
-    para_eff = float(
-    float(platform_config["compared_cores"] * platform_config["compared_run_time"])
-        / float((parallelism_info["core_num"] // 10000) * elapsed_time)
-    ) * 100
+    if not elapsed_time or elapsed_time == 0:
+        logger.warning("无法计算效率: elapsed_time 无效")
+        para_eff = 0.0
+    else:
+        try:
+            para_eff = float(
+                float(platform_config["compared_cores"] * platform_config["compared_run_time"])
+                / float((parallelism_info["core_num"] // 10000) * elapsed_time)
+            ) * 100
+        except Exception as e:
+            logger.error(f"计算效率时出错: {e}")
+            para_eff = 0.0
             
     report_info = {
         "platform": platform_config["platform_name"],

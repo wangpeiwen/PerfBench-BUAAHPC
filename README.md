@@ -50,6 +50,22 @@ cd perfbench
 - `-t, --interval`: 设置性能数据采集间隔（秒）
 - `-o, --output`: 指定输出目录路径
 - `--version`: 显示版本信息
+ - `--wait`: 等待提交的作业结束并生成后处理报告（用于 Sunway / LSF 的 cnload 后处理）
+ 
+### Sunway / LSF 支持 (神威超算)
+
+PerfBench 现在支持 Sunway/LSF 系统（例如神威超算）。当检测到 LSF 调度器时，工具会：
+- 自动将脚本注入 LSF 环境（将 LSB_JOBID 写入 job_node_info）
+- 使用 `bsub` 提交作业（脚本会被 `bsub < script` 提交）
+- 启动 `monitor_sunway.sh` 轮询 `bjobs` 和 `cnload -b`，并将位图输出存为 `cnload_b_job_*` / `cnload_b_c_*` 文件
+- 支持 `--wait` 来等待作业结束并自动导出 `cnload_detailed.csv`（每 node/group 的利用率）、或 `cnload_summary.csv`
+
+示例（Sunway/LSF）：
+```bash
+python -m perfbench --script ./cg_monitor.sh --interval 3 --output /path/to/out --wait
+```
+
+注意：当使用 Sunway 模式时，请确保你的脚本中包含 `MASTER_CORES` 或能推断出 `master_cores`，PerfBench 将使用 `master_cores * 64 * node_num` 计算并行度；否则仍会回退到平台常数（例如 SW26010=260）来计算。
 
 ## 输出说明
 
@@ -65,3 +81,12 @@ cd perfbench
 1. 工具必须在SLURM集群的登录节点上运行
 2. 确保有足够的磁盘空间存储监控数据
 3. 建议定期清理旧的监控数据
+
+## 测试
+
+本项目使用 pytest 编写单元测试，工作流配置已包含在 `.github/workflows/ci.yml` 中。要在本地运行测试：
+
+```bash
+pip install pytest
+pytest -q
+```
