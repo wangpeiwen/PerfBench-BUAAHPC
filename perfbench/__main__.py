@@ -8,11 +8,13 @@ This module contains the CLI parsing and top-level orchestration.
 from datetime import datetime
 import sys
 import argparse
+import math
 from perfbench.core.initializer import initialize_environment
 from perfbench.core.script_processor import process_slurm_script
 from perfbench.core.validator import validate_environment
 from perfbench.utils.logger import setup_logging
 from perfbench.utils.progress_bar import StepProgress
+from perfbench.utils.result_handler import calculate_parallelism, get_platform_config, Result
 from perfbench.report.certificate_generator import generate_certificate
 
 
@@ -83,16 +85,7 @@ def main():
             progress.next("监控完成")  # 5. 监控完成
             logger.info(f"PerfBench流程已完成，输出目录: {job_dir}")
             progress.next("报告生成中")  # 6. 报告生成中
-            # TODO: 生成报告
-            report_info = {
-                "platform": "HYGON",
-                "node_num": script_info['nodes'],
-                "app_name": script_info['job_name'],
-                "core_num": str(int(script_info['nodes']) * int(script_info['tasks_per_node']) * int(script_info['cpus_per_task'])),
-                "eff": "18.30%(10 Nodes)",
-                "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            }
-            generate_certificate(report_info, job_dir)
+            generate_certificate_for_test(logger, job_dir, script_info, args)
             progress.finish()  # 7. 报告生成完成
             return
 
@@ -103,6 +96,56 @@ def main():
         logger.error(f"执行过程中发生错误: {str(e)}")
         sys.exit(1)
 
+def generate_certificate_for_test(logger, job_dir, script_info, args):
+    platform_config = get_platform_config() # 获取平台配置-platform_config.yaml
+
+    parallelism_info = calculate_parallelism(platform_name=platform_config['platform_name'], node_num=script_info['nodes'])
+    logger.info(f"计算得到的并行度: {parallelism_info}")
+            
+    # 解析sacct结果
+    sacct_result = Result(cmd_name="sacct", out_dir=job_dir, interval=args.interval)
+    sacct_result.parse_sacct()
+    elapsed_time = sacct_result.get_elapsed_time() # 本次作业的运行时间
+            
+    para_eff = float(
+    float(platform_config["compared_cores"] * platform_config["compared_run_time"])
+        / float((parallelism_info["core_num"] // 10000) * elapsed_time)
+    ) * 100
+            
+    report_info = {
+        "platform": platform_config["platform_name"],
+        "node_num": script_info['nodes'],
+        "app_name": script_info['job_name'],
+        "core_num": parallelism_info["core_num"],
+        "eff": f"{para_eff:.2f}%({platform_config['compared_cores']} Nodes)",
+        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    generate_certificate(report_info, job_dir)
 
 if __name__ == '__main__':
     main()
+    # platform_config = get_platform_config() # 获取平台配置-platform_config.yaml
+
+    # parallelism_info = calculate_parallelism(platform_name=platform_config['platform_name'], node_num=100)
+    # import os    
+    # # 解析sacct结果
+    # root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # out_dir = os.path.join(root, "logs")
+    # sacct_result = Result(cmd_name="sacct", out_dir=out_dir, interval=2)
+    # sacct_result.parse_sacct()
+    # elapsed_time = sacct_result.get_elapsed_time() # 本次作业的运行时间
+            
+    # para_eff = float(
+    # float(platform_config["compared_cores"] * platform_config["compared_run_time"])
+    #     / float((parallelism_info["core_num"] // 10000) * elapsed_time)
+    # ) * 100
+            
+    # report_info = {
+    #     "platform": platform_config["platform_name"],
+    #     "node_num": 100,
+    #     "app_name": 'LAMMPS',
+    #     "core_num": parallelism_info["core_num"],
+    #     "eff": f"{para_eff:.2f}%({platform_config['compared_cores']} Nodes)",
+    #     "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    # }
+    # generate_certificate(report_info, out_dir)

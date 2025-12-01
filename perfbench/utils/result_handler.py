@@ -1,6 +1,8 @@
 import os
 import glob
-from logger import get_logger
+import yaml
+from pathlib import Path
+from perfbench.utils.logger import get_logger
 
 logger = get_logger() # 获取logger实例
 
@@ -81,9 +83,14 @@ class Result:
             self.data.append(row_dict)
         return
     
-    def get_complete_time(self):
+    def get_elapsed_time(self):
         if self.cmd_name == "sacct":
-            return self.data[-1]["Elapsed"]
+            # print("The elapsed time is:" + self.data[-1]["Elapsed"])
+            from datetime import datetime
+            dt = datetime.strptime(self.data[-1]["Elapsed"], "%H:%M:%S")
+            elapsed_seconds = dt.hour * 3600 + dt.minute * 60 + dt.second
+            print(f"Elapsed time in seconds: {elapsed_seconds}")
+            return elapsed_seconds
         logger.warning("正在尝试从错误的日志中提取作业完成时间信息")
         return None
              
@@ -99,7 +106,39 @@ class Result:
     def parse_scontrol(self):
         pass
 
-def calculate_parallelism(platform_name: str, node_num: int):
+def get_platform_config():
+    """
+    从platform_config.yaml中读取平台配置信息
+    """
+    try:
+        # 获取当前模块的路径，向上两级到达perfbench目录
+        module_path = Path(__file__).resolve()
+        config_path = module_path.parent.parent / 'platform_config.yaml'
+        
+        with open(config_path, 'r', encoding='utf-8') as file:
+            config = yaml.safe_load(file)
+            return config
+    except FileNotFoundError:
+        logger.error(f"平台配置文件不存在: {config_path}")
+        return None
+    except yaml.YAMLError as e:
+        logger.error(f"解析YAML配置文件失败: {str(e)}")
+        return None
+    except Exception as e:
+        logger.error(f"读取配置文件时发生未知错误: {str(e)}")
+        return None
+
+def calculate_parallelism(platform_name: str = None, node_num: int = None):
+    """
+    根据平台类型和节点数计算并行度
+    如果未提供platform_name，从配置文件中读取
+    返回值结构：
+    {
+        "core_num": None,
+        "method": None
+    }
+    """
+    # 如果未提供平台名称，从配置文件中读取
     res = {
         "core_num": None,
         "method": None
@@ -119,15 +158,15 @@ def calculate_parallelism(platform_name: str, node_num: int):
     elif platform_name == "Matrix3000":
         res["core_num"] = node_num * 1648
         res["method"] = "node_num \times 1648"
-    elif platform_name == "DCU Z100" | "DCU Z100L":
+    elif platform_name in ["DCU Z100", "DCU Z100L"]:
         res["core_num"] = node_num * (256 + 32)
-        res["method"] = "node_num \times (4\times DCU_nums \plus CPU_nums)"
+        res["method"] = "node_num \times (4\times DCU_nums + CPU_nums)"
     elif platform_name == "BW1000(80CU)":
         res["core_num"] = node_num * (320 + 32)
-        res["method"] = "node_num \times (4\times DCU_nums \plus CPU_nums)"
+        res["method"] = "node_num \times (4\times DCU_nums + CPU_nums)"
     elif platform_name == "BW1000(88CU)":
         res["core_num"] = node_num * (352 + 32)
-        res["method"] = "node_num \times (4\times DCU_nums \plus CPU_nums)"
+        res["method"] = "node_num \times (4\times DCU_nums + CPU_nums)"
     elif platform_name == "Tesla P100":
         res["core_num"] = node_num * 112
         res["method"] = "node_num \times 112"
@@ -139,6 +178,8 @@ def calculate_parallelism(platform_name: str, node_num: int):
         res["method"] = "node_num \times 216"
     else:
         logger.error(f"无法计算并行度：不支持的平台类型。platform_name: {platform_name}, node_num: {node_num}")
+        return None
+    return res
     
   
 if __name__ == "__main__":
