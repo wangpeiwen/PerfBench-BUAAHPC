@@ -81,7 +81,7 @@ def process_slurm_script(script_path, interval, output_path, wait=False):
                         if 'cgsp' in c or '-cgsp' in c:
                             cgsp = c
                             break
-                sunway_monitor.start_monitoring_on_login(jobid, interval, job_dir, master_cores=mc, cgsp=cgsp)
+                sunway_monitor.start_monitoring_on_login(jobid, interval, job_dir, master_cores=mc, cgsp=cgsp, daemon_mode=True)
         else:
             monitoring.start_monitoring_on_login(jobid, interval, job_dir)
     except Exception as e:
