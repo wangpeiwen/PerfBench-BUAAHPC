@@ -1,5 +1,9 @@
 import io
 import os
+import json
+import hashlib
+import hmac
+from datetime import datetime
 from pypdf import PdfReader, PdfWriter
 from reportlab.pdfgen import canvas
 from reportlab.lib.colors import white, black, lightgrey
@@ -23,6 +27,96 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_FONT_PATH = os.path.join(HERE, "Arial.ttf")
 DEFAULT_FONT_NAME = "CJKFont"
 DEFAULT_OUT_DIR = os.path.join(HERE, "output")
+
+# 暗水印配置
+WATERMARK_SECRET_KEY = "perfbench_cert_seal_v1.0"  # 水印密钥（用于HMAC）
+WATERMARK_MARKER = "<!--WATERMARK:"  # 水印标记前缀
+WATERMARK_END = ":END-->"  # 水印标记后缀
+
+# 暗水印配置
+WATERMARK_SECRET_KEY = "perfbench_cert_seal_v1.0"  # 水印密钥（用于HMAC）
+WATERMARK_MARKER = "<!--WATERMARK:"  # 水印标记前缀
+WATERMARK_END = ":END-->"  # 水印标记后缀
+
+
+def generate_watermark_hash(watermark_data, secret_key=WATERMARK_SECRET_KEY):
+    """
+    生成暗水印哈希值
+    
+    Args:
+        watermark_data (dict): 水印数据（如平台信息、时间戳等）
+        secret_key (str): 密钥，用于HMAC计算
+    
+    Returns:
+        str: 水印哈希值（十六进制字符串）
+    """
+    # 将字典转换为JSON字符串（保证顺序）
+    data_str = json.dumps(watermark_data, sort_keys=True, ensure_ascii=False)
+    
+    # 使用HMAC-SHA256计算哈希
+    watermark_hash = hmac.new(
+        secret_key.encode('utf-8'),
+        data_str.encode('utf-8'),
+        hashlib.sha256
+    ).hexdigest()
+    
+    return watermark_hash
+
+
+def verify_watermark(watermark_data, watermark_hash, secret_key=WATERMARK_SECRET_KEY):
+    """
+    验证暗水印是否有效
+    
+    Args:
+        watermark_data (dict): 水印数据
+        watermark_hash (str): 要验证的水印哈希值
+        secret_key (str): 密钥
+    
+    Returns:
+        bool: 水印是否有效
+    """
+    expected_hash = generate_watermark_hash(watermark_data, secret_key)
+    # 使用恒定时间比较防止时序攻击
+    return hmac.compare_digest(watermark_hash, expected_hash)
+
+
+def embed_text_watermark(text, watermark, marker=WATERMARK_MARKER, end=WATERMARK_END):
+    """
+    在文本中嵌入暗水印（通过HTML注释）
+    
+    Args:
+        text (str): 原始文本
+        watermark (str): 水印数据
+        marker (str): 水印标记前缀
+        end (str): 水印标记后缀
+    
+    Returns:
+        str: 包含水印的文本
+    """
+    watermark_comment = f"{marker}{watermark}{end}"
+    return text + "\n" + watermark_comment
+
+
+def extract_text_watermark(text, marker=WATERMARK_MARKER, end=WATERMARK_END):
+    """
+    从文本中提取暗水印
+    
+    Args:
+        text (str): 包含水印的文本
+        marker (str): 水印标记前缀
+        end (str): 水印标记后缀
+    
+    Returns:
+        str: 提取的水印数据，如果不存在返回None
+    """
+    import re
+    pattern = re.escape(marker) + r'(.*?)' + re.escape(end)
+    match = re.search(pattern, text)
+    
+    if match:
+        return match.group(1)
+    return None
+
 
 def create_overlay(page_width, page_height, overrides_for_page, font_path=DEFAULT_FONT_PATH, font_name=DEFAULT_FONT_NAME):
     """
@@ -108,9 +202,9 @@ def create_grid_overlay(page_width, page_height):
     packet.seek(0)
     return PdfReader(packet).pages[0]
 
-def generate_certificate(report_info, out_dir=DEFAULT_OUT_DIR, input_template="certificate.pdf", font_path=DEFAULT_FONT_PATH):
+def generate_certificate(report_info, out_dir=DEFAULT_OUT_DIR, input_template="certificate.pdf", font_path=DEFAULT_FONT_PATH, add_watermark=True):
     """
-    生成性能测试证书海报
+    生成性能测试证书海报，可选择添加暗水印以验证真伪
     
     Args:
         report_info (dict): 包含报告信息的字典，需要包含以下键：
@@ -123,9 +217,13 @@ def generate_certificate(report_info, out_dir=DEFAULT_OUT_DIR, input_template="c
         out_dir (str): 输出目录路径
         input_template (str): 输入模板PDF文件名或路径
         font_path (str): 字体文件路径
+        add_watermark (bool): 是否添加暗水印（默认为True）
     
     Returns:
-        str: 生成的最终PDF文件路径
+        dict: 包含以下键的字典：
+            - pdf_path: 生成的最终PDF文件路径
+            - watermark: 水印哈希值（如果启用了水印）
+            - verification_code: 验证码（用于验证文档真伪）
     """
     # 确保输出目录存在
     os.makedirs(out_dir, exist_ok=True)
@@ -156,6 +254,7 @@ def generate_certificate(report_info, out_dir=DEFAULT_OUT_DIR, input_template="c
     
     # 定义文件名
     final_pdf = os.path.join(out_dir, "certificate_final.pdf")
+    watermark_file = os.path.join(out_dir, "certificate_watermark.json")
     
     try:
         # 添加文本内容到PDF
@@ -186,7 +285,45 @@ def generate_certificate(report_info, out_dir=DEFAULT_OUT_DIR, input_template="c
         
         logger.info(f"已生成证书海报: {final_pdf}")
         
-        return final_pdf
+        # 生成暗水印信息
+        result = {"pdf_path": final_pdf}
+        
+        if add_watermark:
+            # 准备水印数据
+            watermark_data = {
+                "platform": report_info.get("platform", ""),
+                "node_num": str(report_info.get("node_num", "")),
+                "app_name": report_info.get("app_name", ""),
+                "timestamp": datetime.now().isoformat(),
+                "version": "1.0.0"
+            }
+            
+            # 生成水印哈希
+            watermark_hash = generate_watermark_hash(watermark_data)
+            
+            # 生成验证码（前16个字符的大写）
+            verification_code = watermark_hash[:16].upper()
+            
+            # 保存水印信息
+            watermark_info = {
+                "watermark_hash": watermark_hash,
+                "verification_code": verification_code,
+                "watermark_data": watermark_data,
+                "generated_time": datetime.now().isoformat(),
+                "pdf_file": os.path.basename(final_pdf)
+            }
+            
+            with open(watermark_file, 'w', encoding='utf-8') as f:
+                json.dump(watermark_info, f, indent=2, ensure_ascii=False)
+            
+            logger.info(f"水印信息已保存: {watermark_file}")
+            logger.info(f"验证码: {verification_code}")
+            
+            result["watermark"] = watermark_hash
+            result["verification_code"] = verification_code
+            result["watermark_file"] = watermark_file
+        
+        return result
         
     except Exception as e:
         logger.error(f"生成证书时出错: {str(e)}")
