@@ -117,7 +117,7 @@ def submit_sunway_job(script_path: str) -> str:
     original_cwd = os.getcwd()  # 保存原始工作目录
     
     try:
-        # 切换到脚本所在目录提交作业（模拟手动在脚本目录执行swarm命令）
+        # 切换到脚本所在目录提交作业（模拟手动在脚本目录执行bsub命令）
         os.chdir(script_dir)
         logger.info(f"提交申威作业 -> 目录: {script_dir}，脚本: {script_name}")
         
@@ -144,8 +144,8 @@ def submit_sunway_job(script_path: str) -> str:
         return jobid
     
     except subprocess.CalledProcessError as e:
-        # swarm提交失败（脚本格式错误、资源不足等）
-        error_msg = f"swarm提交失败: {e.stderr.strip()}"
+        # bsub提交失败（脚本格式错误、资源不足等）
+        error_msg = f"bsub: {e.stderr.strip()}"
         logger.error(error_msg)
         raise RuntimeError(error_msg) from e
     finally:
@@ -173,7 +173,7 @@ def process_sunway_script(script_path, interval, output_path):
     # 提交作业并获取 jobid
     jobid = submit_sunway_job(script_path)
 
-    # 在登录节点启动监控器（使用 sacct/seff/sinfo）
+    # 在登录节点启动监控器（使用 bjob/cnload/...）
     try:
         monitoring.start_bjob_monitoring_on_login(jobid, interval, job_dir)
     except Exception as e:
