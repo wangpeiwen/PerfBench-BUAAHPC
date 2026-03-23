@@ -19,5 +19,6 @@ dist/
 *.egg-info/
 
 # 系统文件
+.venv/
 .DS_Store
 Thumbs.db

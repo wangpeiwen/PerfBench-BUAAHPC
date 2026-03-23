@@ -14,8 +14,9 @@ from perfbench.core.script_processor import process_slurm_script, process_sunway
 from perfbench.core.validator import validate_environment
 from perfbench.utils.logger import setup_logging
 from perfbench.utils.progress_bar import StepProgress
-from perfbench.utils.result_handler import calculate_parallelism, get_platform_config, Result
+from perfbench.utils.result_handler import calculate_parallelism, get_platform_config, Result, calculate_efficiency
 from perfbench.report.certificate_generator import generate_certificate
+from perfbench.interactive import interactive_main
 
 
 def parse_arguments():
@@ -26,7 +27,7 @@ def parse_arguments():
     parser.add_argument('-o', '--output', type=str, help='输出目录路径')
     parser.add_argument('-v', action='store_true', help='运行工具适配性测试')
     parser.add_argument('--force', action='store_true', help='跳过环境检测（仅用于调试）')
-    parser.add_argument('-sw', action='sunway_true', help='指定为申威平台（默认自动检测）')
+    parser.add_argument('-sw', action='store_true', help='指定为申威平台（默认自动检测）')
     parser.add_argument('--version', action='version', version='%(prog)s 1.0.0')
     return parser
 
@@ -46,7 +47,6 @@ def main():
         "报告生成中",
         "报告生成完成"
     ]
-    progress = StepProgress(steps)
 
     try:
         if args.init:
@@ -57,29 +57,19 @@ def main():
             validate_environment(force=args.force)
             return
 
+        # If script is provided, use traditional CLI mode
         if args.script:
             if not args.interval or not args.output:
                 logger.error("请提供采集间隔(-t)和输出目录(-o)参数")
                 sys.exit(1)
+            
+            progress = StepProgress(steps)
             progress.next()  # 1. 读取用户提交脚本
             # 解析和生成监控脚本
             progress.next("监控脚本生成中")  # 2. 监控脚本生成中
             if not args.sw:
                 # process_slurm_script 内部包含所有后续步骤（除了报告生成）
                 job_dir, script_info = process_slurm_script(args.script, args.interval, args.output)
-                """
-                info = {
-                    'job_name': None,
-                    'nodes': 1,
-                    'tasks_per_node': 1,
-                    'cpus_per_task': 1,
-                    'time_limit': None,
-                    'partition': None,
-                    'output': None,
-                    'error': None,
-                    'commands': []
-                }
-                """
                 progress.next("作业提交")  # 3. 作业提交
                 # 监控中（此处为启动监控脚本后）
                 progress.next("监控中")  # 4. 监控中
@@ -87,59 +77,132 @@ def main():
                 progress.next("监控完成")  # 5. 监控完成
                 logger.info(f"PerfBench流程已完成，输出目录: {job_dir}")
                 progress.next("报告生成中")  # 6. 报告生成中
-                generate_certificate_for_test(logger, job_dir, script_info, args)
+                generate_certificate_for_test(logger, job_dir, script_info, args, is_sunway=False)
                 progress.finish()  # 7. 报告生成完成
                 return
             else:
                 job_dir, script_info = process_sunway_script(args.script, args.interval, args.output)
-                """
-                info = {
-                    'job_name': None,
-                    'nodes': 1,
-                    'tasks_per_node': 1,
-                    'cpus_per_task': 1,
-                    'time_limit': None,
-                    'partition': None,
-                    'output': None,
-                    'error': None,
-                    'commands': []
-                }
-                """
                 progress.next("作业提交")  # 3. 作业提交
                 # 监控中（此处为启动监控脚本后）
                 progress.next("监控中")  # 4. 监控中
                 # 监控完成（此处可根据后处理或监控脚本退出信号完善）
                 progress.next("监控完成")  # 5. 监控完成
                 logger.info(f"PerfBench流程已完成，输出目录: {job_dir}")
-                progress.finish()  # 6. 报告生成完成
-                # progress.next("报告生成中")  # 6. 报告生成中
-                # generate_certificate_for_test(logger, job_dir, script_info, args)
-                # progress.finish()  # 7. 报告生成完成
+                progress.next("报告生成中")  # 6. 报告生成中
+                generate_certificate_for_test(logger, job_dir, script_info, args, is_sunway=True)
+                progress.finish()  # 7. 报告生成完成
                 return
-        # 如果没有提供任何参数，显示帮助信息
-        parser.print_help()
+        
+        # Interactive mode: No arguments provided
+        config = interactive_main()
+        if config is None:
+            return
+        
+        # Process configuration from interactive mode
+        progress = StepProgress(steps)
+        progress.next()  # 1. 读取用户提交脚本
+        progress.next("监控脚本生成中")  # 2. 监控脚本生成中
+        
+        if config['test_type'] == 'application':
+            # Application software testing
+            script_path = config['script_path']
+            interval = config['interval']
+            output_dir = config['output_dir']
+            is_sunway = config['is_sunway']
+            
+            if is_sunway:
+                job_dir, script_info = process_sunway_script(script_path, interval, output_dir)
+            else:
+                job_dir, script_info = process_slurm_script(script_path, interval, output_dir)
+            
+            # Update script_info with optional parameters
+            if config.get('nodes'):
+                script_info['nodes'] = config['nodes']
+            
+        else:
+            # Support software testing
+            script_path = config['benchmark_script']
+            interval = config['interval']
+            output_dir = config['output_dir']
+            is_sunway = config['is_sunway']
+            
+            logger.info(f"支撑软件性能评测配置:")
+            logger.info(f"  软件名称: {config['software_name']}")
+            logger.info(f"  激活命令: {config['activation_cmd']}")
+            logger.info(f"  Benchmark脚本: {script_path}")
+            
+            if is_sunway:
+                job_dir, script_info = process_sunway_script(script_path, interval, output_dir)
+            else:
+                job_dir, script_info = process_slurm_script(script_path, interval, output_dir)
+            
+            if config.get('nodes'):
+                script_info['nodes'] = config['nodes']
+        
+        progress.next("作业提交")  # 3. 作业提交
+        progress.next("监控中")  # 4. 监控中
+        progress.next("监控完成")  # 5. 监控完成
+        logger.info(f"PerfBench流程已完成，输出目录: {job_dir}")
+        progress.next("报告生成中")  # 6. 报告生成中
+        
+        # Create a namespace-like object for generate_certificate_for_test
+        class Args:
+            pass
+        args_obj = Args()
+        args_obj.interval = interval
+        
+        generate_certificate_for_test(logger, job_dir, script_info, args_obj, is_sunway=is_sunway)
+        progress.finish()  # 7. 报告生成完成
 
     except Exception as e:
         logger.error(f"执行过程中发生错误: {str(e)}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
 
-def generate_certificate_for_test(logger, job_dir, script_info, args):
-    platform_config = get_platform_config() # 获取平台配置-platform_config.yaml
-
-    parallelism_info = calculate_parallelism(platform_name=platform_config['platform_name'], node_num=script_info['nodes'])
+def generate_certificate_for_test(logger, job_dir, script_info, args, is_sunway=False):
+    """
+    生成性能测试证书
+    
+    Args:
+        logger: 日志对象
+        job_dir: 作业输出目录
+        script_info: 脚本信息字典
+        args: 命令行参数
+        is_sunway: 是否为申威平台
+    """
+    platform_config = get_platform_config()
+    
+    # 根据平台类型选择相应的日志解析
+    if is_sunway:
+        platform = "Sunway"
+        cmd_name = "bjobs"
+    else:
+        platform = "SLURM"
+        cmd_name = "sacct"
+    
+    parallelism_info = calculate_parallelism(
+        platform_name=platform_config['platform_name'], 
+        node_num=script_info['nodes']
+    )
     logger.info(f"计算得到的并行度: {parallelism_info}")
-            
-    # 解析sacct结果
-    sacct_result = Result(cmd_name="sacct", out_dir=job_dir, interval=args.interval)
-    sacct_result.parse_sacct()
-    elapsed_time = sacct_result.get_elapsed_time() # 本次作业的运行时间
-            
-    para_eff = float(
-    float(platform_config["compared_cores"] * platform_config["compared_run_time"])
-        / float((parallelism_info["core_num"] // 10000) * elapsed_time)
-    ) * 100
-            
+    
+    # 根据平台类型解析结果
+    result = Result(cmd_name=cmd_name, out_dir=job_dir, interval=args.interval, platform=platform)
+    elapsed_time = result.get_elapsed_time()
+    
+    if elapsed_time is None:
+        logger.error("无法提取作业运行时间，报告生成失败")
+        return
+    
+    # 计算效率（两个平台使用同一个公式）
+    para_eff = calculate_efficiency(platform_config, parallelism_info, elapsed_time)
+    
+    if para_eff is None:
+        logger.error("效率计算失败，报告生成失败")
+        return
+    
     report_info = {
         "platform": platform_config["platform_name"],
         "node_num": script_info['nodes'],
@@ -148,6 +211,8 @@ def generate_certificate_for_test(logger, job_dir, script_info, args):
         "eff": f"{para_eff:.2f}%({platform_config['compared_cores']} Nodes)",
         "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
+    
+    logger.info(f"报告信息: {report_info}")
     generate_certificate(report_info, job_dir)
 
 if __name__ == '__main__':
