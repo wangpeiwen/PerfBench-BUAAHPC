@@ -1,6 +1,6 @@
 import os
 import glob
-import yaml
+import json
 from pathlib import Path
 from perfbench.utils.logger import get_logger
 
@@ -206,21 +206,20 @@ class Result:
 
 def get_platform_config():
     """
-    从platform_config.yaml中读取平台配置信息
+    从platform_config.json中读取平台配置信息
     """
     try:
-        # 获取当前模块的路径，向上两级到达perfbench目录
         module_path = Path(__file__).resolve()
-        config_path = module_path.parent.parent / 'platform_config.yaml'
+        config_path = module_path.parent.parent / 'platform_config.json'
         
         with open(config_path, 'r', encoding='utf-8') as file:
-            config = yaml.safe_load(file)
+            config = json.load(file)
             return config
     except FileNotFoundError:
         logger.error(f"平台配置文件不存在: {config_path}")
         return None
-    except yaml.YAMLError as e:
-        logger.error(f"解析YAML配置文件失败: {str(e)}")
+    except json.JSONDecodeError as e:
+        logger.error(f"解析JSON配置文件失败: {str(e)}")
         return None
     except Exception as e:
         logger.error(f"读取配置文件时发生未知错误: {str(e)}")
