@@ -1,183 +1,184 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""
+Script processor module for PerfBench.
+
+Provides functions to process SLURM and Sunway job scripts:
+- Parse the user's submission script
+- Create a timestamped output directory
+- Generate a monitoring-enhanced script
+- Submit the job via sbatch/bsub
+- Start login-node monitoring
+"""
 
 import os
-import shutil
-import re
 import subprocess
+import time
 from datetime import datetime
 from perfbench.utils.logger import get_logger
 from perfbench.utils.script_parser import parse_slurm_script
-from perfbench.utils import monitoring
+from perfbench.utils.monitoring import (
+    generate_monitoring_script,
+    start_monitoring_on_login,
+    start_bjob_monitoring_on_login,
+)
 
 logger = get_logger()
 
 
-def process_slurm_script(script_path, interval, output_path):
+def process_slurm_script(script_path, interval, output_dir):
     """
-    处理SLURM脚本
-    - 解析原始脚本
-    - 创建输出目录
-    - 生成监控脚本
-    - 提交作业
+    处理 SLURM 作业脚本的完整流程。
+
+    1. 解析用户提交脚本
+    2. 创建带时间戳的输出目录
+    3. 生成含监控代码的脚本
+    4. 通过 sbatch 提交作业
+    5. 启动登录节点监控
+
+    Returns:
+        (job_dir, script_info): 作业输出目录和脚本解析信息
     """
-    # 增加进度展示
-    logger.info(f"开始处理SLURM脚本: {script_path}")
-    
-    # 验证输入文件存在
-    if not os.path.exists(script_path):
-        raise FileNotFoundError(f"脚本文件不存在: {script_path}")
-    
-    # 创建输出目录
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    job_dir = os.path.join(output_path, f"perfbench_{timestamp}")
-    os.makedirs(job_dir, exist_ok=True)
-    
-    # 解析原始脚本
+    # 1. 解析脚本
     script_info = parse_slurm_script(script_path)
-    
-    # 生成修改后的脚本（只做最小的环境注入，实际监控在登录节点运行）
-    modified_script = monitoring.generate_monitoring_script(script_path, script_info, interval, job_dir)
+    if script_info is None:
+        raise RuntimeError(f"无法解析SLURM脚本: {script_path}")
 
-    # 复制修改后的脚本到script目录：script_path需要进一步处理为目录
-    script_dir = os.path.dirname(script_path)
-    output_script = os.path.join(script_dir, "run.slurm")
-    shutil.copy2(modified_script, output_script)
+    logger.info(f"脚本解析完成: job_name={script_info.get('job_name')}, nodes={script_info.get('nodes')}")
 
-    # 提交作业并获取 jobid
-    jobid = submit_job(output_script)
+    # 2. 创建输出目录
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    job_name = script_info.get('job_name', 'unknown')
+    job_dir = os.path.join(output_dir, f"{job_name}_{timestamp}")
+    os.makedirs(job_dir, exist_ok=True)
+    logger.info(f"输出目录: {job_dir}")
 
-    # 在登录节点启动监控器（使用 sacct/seff/sinfo）
-    try:
-        monitoring.start_monitoring_on_login(jobid, interval, job_dir)
-    except Exception as e:
-        logger.warning(f"启动登录节点监控失败: {e}")
-    
-    logger.info(f"作业处理完成，输出目录: {job_dir}")
+    # 3. 生成监控脚本
+    modified_script = generate_monitoring_script(script_path, script_info, interval, job_dir)
+    logger.info(f"监控脚本已生成: {modified_script}")
+
+    # 4. 提交作业
+    jobid = _submit_slurm_job(modified_script)
+    logger.info(f"作业已提交, JobID={jobid}")
+
+    # 5. 启动登录节点监控
+    start_monitoring_on_login(jobid, interval, job_dir)
+
+    # 等待作业完成
+    _wait_for_slurm_job(jobid)
+
     return job_dir, script_info
 
-def submit_job(script_path: str) -> str:
-    """
-    提交SLURM作业并返回jobid
-    - 提交前切换到脚本所在目录，保证相对路径与手动提交一致
-    - 提交后切回原工作目录，不影响后续流程
-    - 完善错误处理，输出详细报错信息
-    """
-    # 转换为绝对路径，避免相对路径歧义
-    script_path = os.path.abspath(script_path)
-    script_dir = os.path.dirname(script_path)
-    script_name = os.path.basename(script_path)
-    original_cwd = os.getcwd()  # 保存原始工作目录
-    
-    try:
-        # 切换到脚本所在目录提交作业（模拟手动在脚本目录执行sbatch）
-        os.chdir(script_dir)
-        logger.info(f"提交作业 -> 目录: {script_dir}，脚本: {script_name}")
-        
-        # 执行sbatch命令提交作业
-        result = subprocess.run(
-            ['sbatch', script_name],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=True  # 提交失败时抛出CalledProcessError
-        )
-        
-        # 解析jobid（sbatch标准输出格式：Submitted batch job 123456）
-        output = result.stdout.strip()
-        jobid_match = re.search(r"Submitted batch job (\d+)", output)
-        if not jobid_match:
-            logger.error(f"无法从sbatch输出中解析jobid: {output}")
-            raise RuntimeError(f"作业提交成功，但无法解析jobid（输出: {output}）")
-        
-        jobid = jobid_match.group(1)
-        logger.info(f"作业提交成功，jobid: {jobid}")
-        return jobid
-    
-    except subprocess.CalledProcessError as e:
-        # sbatch提交失败（脚本格式错误、资源不足等）
-        error_msg = f"sbatch提交失败: {e.stderr.strip()}"
-        logger.error(error_msg)
-        raise RuntimeError(error_msg) from e
-    finally:
-        # 无论提交成功与否，切回原始工作目录
-        os.chdir(original_cwd)
 
-def submit_sunway_job(script_path: str) -> str:
+def process_sunway_script(script_path, interval, output_dir):
     """
-    提交申威作业并返回jobid
-    - 提交前切换到脚本所在目录，保证相对路径与手动提交一致
-    - 提交后切回原工作目录，不影响后续流程
-    - 完善错误处理，输出详细报错信息
-    """
-    # 转换为绝对路径，避免相对路径歧义
-    script_path = os.path.abspath(script_path)
-    script_dir = os.path.dirname(script_path)
-    script_name = os.path.basename(script_path)
-    original_cwd = os.getcwd()  # 保存原始工作目录
-    
-    try:
-        # 切换到脚本所在目录提交作业（模拟手动在脚本目录执行bsub命令）
-        os.chdir(script_dir)
-        logger.info(f"提交申威作业 -> 目录: {script_dir}，脚本: {script_name}")
-        
-        # 执行bsub命令提交作业
-        # 这里存疑，申威集群的作业一般提供一个可执行文件，假设这里的script_name是可执行文件
-        # TODO: 根据实际申威集群的作业提交命令调整
-        result = subprocess.run(
-            script_name,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=True  # 提交失败时抛出CalledProcessError
-        )
-        
-        # 解析jobid (bsub标准输出格式：Submitted b job 123456)
-        output = result.stdout.strip()
-        jobid_match = re.search(r"Submitted b job (\d+)", output)
-        if not jobid_match:
-            logger.error(f"无法从bsub输出中解析jobid: {output}")
-            raise RuntimeError(f"作业提交成功，但无法解析jobid（输出: {output}）")
-        
-        jobid = jobid_match.group(1)
-        logger.info(f"申威作业提交成功，jobid: {jobid}")
-        return jobid
-    
-    except subprocess.CalledProcessError as e:
-        # bsub提交失败（脚本格式错误、资源不足等）
-        error_msg = f"bsub: {e.stderr.strip()}"
-        logger.error(error_msg)
-        raise RuntimeError(error_msg) from e
-    finally:
-        # 无论提交成功与否，切回原始工作目录
-        os.chdir(original_cwd)
+    处理申威（Sunway）平台作业脚本的完整流程。
 
-def process_sunway_script(script_path, interval, output_path):
+    1. 解析用户提交脚本
+    2. 创建带时间戳的输出目录
+    3. 通过 bsub 提交作业
+    4. 启动登录节点监控（bjobs）
+
+    Returns:
+        (job_dir, script_info): 作业输出目录和脚本解析信息
     """
-    处理申威脚本
-    - 创建输出目录
-    - 提交作业
-    — 在登录节点启动监控器
-    """
-    
-    # 验证输入文件存在
-    if not os.path.exists(script_path):
-        raise FileNotFoundError(f"脚本文件不存在: {script_path}")
-    
-    # 创建输出目录
+    # 1. 解析脚本（复用 SLURM 解析器的基本逻辑，申威脚本格式类似）
+    script_info = parse_slurm_script(script_path)
+    if script_info is None:
+        raise RuntimeError(f"无法解析申威脚本: {script_path}")
+
+    logger.info(f"脚本解析完成: job_name={script_info.get('job_name')}, nodes={script_info.get('nodes')}")
+
+    # 2. 创建输出目录
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    job_dir = os.path.join(output_path, f"perfbench_{timestamp}")
+    job_name = script_info.get('job_name', 'unknown')
+    job_dir = os.path.join(output_dir, f"{job_name}_{timestamp}")
     os.makedirs(job_dir, exist_ok=True)
-    
+    logger.info(f"输出目录: {job_dir}")
 
-    # 提交作业并获取 jobid
-    jobid = submit_sunway_job(script_path)
+    # 3. 提交作业
+    jobid = _submit_sunway_job(script_path)
+    logger.info(f"申威作业已提交, JobID={jobid}")
 
-    # 在登录节点启动监控器（使用 bjob/cnload/...）
+    # 4. 启动登录节点监控
+    start_bjob_monitoring_on_login(jobid, interval, job_dir)
+
+    # 等待作业完成
+    _wait_for_sunway_job(jobid)
+
+    return job_dir, script_info
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _submit_slurm_job(script_path):
+    """通过 sbatch 提交作业，返回 JobID"""
     try:
-        monitoring.start_bjob_monitoring_on_login(jobid, interval, job_dir)
-    except Exception as e:
-        logger.warning(f"启动登录节点监控失败: {e}")
-    
-    logger.info(f"作业处理完成，输出目录: {job_dir}")
-    return job_dir
+        result = subprocess.run(
+            ['sbatch', script_path],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"sbatch 提交失败: {result.stderr.strip()}")
+        # sbatch 输出格式: "Submitted batch job 12345"
+        jobid = result.stdout.strip().split()[-1]
+        return jobid
+    except FileNotFoundError:
+        raise RuntimeError("sbatch 命令未找到，请确保在 SLURM 集群登录节点上运行")
+
+
+def _submit_sunway_job(script_path):
+    """通过 bsub 提交申威作业，返回 JobID"""
+    try:
+        result = subprocess.run(
+            ['bsub', script_path],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"bsub 提交失败: {result.stderr.strip()}")
+        # bsub 输出中提取 JobID（格式因系统而异，取第一个数字串）
+        import re
+        match = re.search(r'(\d+)', result.stdout)
+        if not match:
+            raise RuntimeError(f"无法从 bsub 输出中提取 JobID: {result.stdout.strip()}")
+        return match.group(1)
+    except FileNotFoundError:
+        raise RuntimeError("bsub 命令未找到，请确保在申威集群登录节点上运行")
+
+
+def _wait_for_slurm_job(jobid, poll_interval=10):
+    """轮询等待 SLURM 作业完成"""
+    logger.info(f"等待作业 {jobid} 完成...")
+    while True:
+        try:
+            result = subprocess.run(
+                ['sacct', '-j', jobid, '-n', '-o', 'State', '-P'],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+            )
+            state = result.stdout.strip().split('\n')[0] if result.stdout.strip() else ''
+            if any(s in state for s in ['COMPLETED', 'FAILED', 'CANCELLED', 'TIMEOUT']):
+                logger.info(f"作业 {jobid} 已结束，状态: {state}")
+                return state
+        except Exception as e:
+            logger.warning(f"查询作业状态时出错: {e}")
+        time.sleep(poll_interval)
+
+
+def _wait_for_sunway_job(jobid, poll_interval=10):
+    """轮询等待申威作业完成"""
+    logger.info(f"等待申威作业 {jobid} 完成...")
+    while True:
+        try:
+            result = subprocess.run(
+                ['bjobs', '-noheader', '-o', 'stat', jobid],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+            )
+            state = result.stdout.strip()
+            if any(s in state for s in ['DONE', 'EXIT', 'CANCELED', 'TERM']):
+                logger.info(f"申威作业 {jobid} 已结束，状态: {state}")
+                return state
+        except Exception as e:
+            logger.warning(f"查询申威作业状态时出错: {e}")
+        time.sleep(poll_interval)

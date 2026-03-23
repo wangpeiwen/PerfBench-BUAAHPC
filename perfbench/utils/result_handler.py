@@ -122,7 +122,6 @@ class Result:
             logger.warning("bjobs数据为空")
             return None
         # 申威bjobs输出包含Run time或Total time信息
-        # 例如：Run time: 3600 seconds 或 Total time: 3600
         for row in reversed(self.data):
             if "run_time" in row and row["run_time"]:
                 try:

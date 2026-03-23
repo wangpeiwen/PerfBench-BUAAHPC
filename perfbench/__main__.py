@@ -16,6 +16,7 @@ from perfbench.utils.logger import setup_logging
 from perfbench.utils.progress_bar import StepProgress
 from perfbench.utils.result_handler import calculate_parallelism, get_platform_config, Result, calculate_efficiency
 from perfbench.report.certificate_generator import generate_certificate
+from perfbench.interactive import interactive_main
 
 
 def parse_arguments():
@@ -26,7 +27,7 @@ def parse_arguments():
     parser.add_argument('-o', '--output', type=str, help='输出目录路径')
     parser.add_argument('-v', action='store_true', help='运行工具适配性测试')
     parser.add_argument('--force', action='store_true', help='跳过环境检测（仅用于调试）')
-    parser.add_argument('-sw', action='sunway_true', help='指定为申威平台（默认自动检测）')
+    parser.add_argument('-sw', action='store_true', help='指定为申威平台（默认自动检测）')
     parser.add_argument('--version', action='version', version='%(prog)s 1.0.0')
     return parser
 
@@ -46,7 +47,6 @@ def main():
         "报告生成中",
         "报告生成完成"
     ]
-    progress = StepProgress(steps)
 
     try:
         if args.init:
@@ -57,29 +57,19 @@ def main():
             validate_environment(force=args.force)
             return
 
+        # If script is provided, use traditional CLI mode
         if args.script:
             if not args.interval or not args.output:
                 logger.error("请提供采集间隔(-t)和输出目录(-o)参数")
                 sys.exit(1)
+            
+            progress = StepProgress(steps)
             progress.next()  # 1. 读取用户提交脚本
             # 解析和生成监控脚本
             progress.next("监控脚本生成中")  # 2. 监控脚本生成中
             if not args.sw:
                 # process_slurm_script 内部包含所有后续步骤（除了报告生成）
                 job_dir, script_info = process_slurm_script(args.script, args.interval, args.output)
-                """
-                info = {
-                    'job_name': None,
-                    'nodes': 1,
-                    'tasks_per_node': 1,
-                    'cpus_per_task': 1,
-                    'time_limit': None,
-                    'partition': None,
-                    'output': None,
-                    'error': None,
-                    'commands': []
-                }
-                """
                 progress.next("作业提交")  # 3. 作业提交
                 # 监控中（此处为启动监控脚本后）
                 progress.next("监控中")  # 4. 监控中
@@ -92,19 +82,6 @@ def main():
                 return
             else:
                 job_dir, script_info = process_sunway_script(args.script, args.interval, args.output)
-                """
-                info = {
-                    'job_name': None,
-                    'nodes': 1,
-                    'tasks_per_node': 1,
-                    'cpus_per_task': 1,
-                    'time_limit': None,
-                    'partition': None,
-                    'output': None,
-                    'error': None,
-                    'commands': []
-                }
-                """
                 progress.next("作业提交")  # 3. 作业提交
                 # 监控中（此处为启动监控脚本后）
                 progress.next("监控中")  # 4. 监控中
@@ -115,11 +92,72 @@ def main():
                 generate_certificate_for_test(logger, job_dir, script_info, args, is_sunway=True)
                 progress.finish()  # 7. 报告生成完成
                 return
-        # 如果没有提供任何参数，显示帮助信息
-        parser.print_help()
+        
+        # Interactive mode: No arguments provided
+        config = interactive_main()
+        if config is None:
+            return
+        
+        # Process configuration from interactive mode
+        progress = StepProgress(steps)
+        progress.next()  # 1. 读取用户提交脚本
+        progress.next("监控脚本生成中")  # 2. 监控脚本生成中
+        
+        if config['test_type'] == 'application':
+            # Application software testing
+            script_path = config['script_path']
+            interval = config['interval']
+            output_dir = config['output_dir']
+            is_sunway = config['is_sunway']
+            
+            if is_sunway:
+                job_dir, script_info = process_sunway_script(script_path, interval, output_dir)
+            else:
+                job_dir, script_info = process_slurm_script(script_path, interval, output_dir)
+            
+            # Update script_info with optional parameters
+            if config.get('nodes'):
+                script_info['nodes'] = config['nodes']
+            
+        else:
+            # Support software testing
+            script_path = config['benchmark_script']
+            interval = config['interval']
+            output_dir = config['output_dir']
+            is_sunway = config['is_sunway']
+            
+            logger.info(f"支撑软件性能评测配置:")
+            logger.info(f"  软件名称: {config['software_name']}")
+            logger.info(f"  激活命令: {config['activation_cmd']}")
+            logger.info(f"  Benchmark脚本: {script_path}")
+            
+            if is_sunway:
+                job_dir, script_info = process_sunway_script(script_path, interval, output_dir)
+            else:
+                job_dir, script_info = process_slurm_script(script_path, interval, output_dir)
+            
+            if config.get('nodes'):
+                script_info['nodes'] = config['nodes']
+        
+        progress.next("作业提交")  # 3. 作业提交
+        progress.next("监控中")  # 4. 监控中
+        progress.next("监控完成")  # 5. 监控完成
+        logger.info(f"PerfBench流程已完成，输出目录: {job_dir}")
+        progress.next("报告生成中")  # 6. 报告生成中
+        
+        # Create a namespace-like object for generate_certificate_for_test
+        class Args:
+            pass
+        args_obj = Args()
+        args_obj.interval = interval
+        
+        generate_certificate_for_test(logger, job_dir, script_info, args_obj, is_sunway=is_sunway)
+        progress.finish()  # 7. 报告生成完成
 
     except Exception as e:
         logger.error(f"执行过程中发生错误: {str(e)}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
 
