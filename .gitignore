@@ -22,3 +22,8 @@ dist/
 .venv/
 .DS_Store
 Thumbs.db
+
+# agen相关
+
+prompts/
+.claude/
