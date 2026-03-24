@@ -55,6 +55,8 @@ def get_application_software_config() -> dict:
     print("="*60 + "\n")
     
     # 1. Application name
+    # 注：app_name 当前仅用于配置摘要展示，尚未稳定接入报告生成链路
+    #     （报告中的 app_name 字段来自作业脚本的 job_name，而非此处输入）。
     config['app_name'] = questionary.text(
         "请输入应用软件名称:",
         validate=lambda x: len(x.strip()) > 0
@@ -122,6 +124,7 @@ def get_application_software_config() -> dict:
         config['is_sunway'] = False
     
     # Optional: Compute precision
+    # 注：precision 当前仅用于配置摘要展示，尚未接入执行主流程（脚本改写或效率计算）。
     precision = questionary.select(
         "请选择计算精度(可选):",
         choices=[
@@ -131,14 +134,14 @@ def get_application_software_config() -> dict:
         ]
     ).ask()
     config['precision'] = precision if precision != "默认" else "default"
-    
+
     # Optional: Node scale
     while True:
         nodes = questionary.text(
             "请输入节点规模(可选，留空表示使用脚本默认值):",
             default=""
         ).ask()
-        
+
         if not nodes:
             config['nodes'] = None
             break
@@ -148,7 +151,7 @@ def get_application_software_config() -> dict:
         else:
             logger.warning("请输入正整数或留空")
             continue
-    
+
     return config
 
 
@@ -171,6 +174,7 @@ def get_support_software_config() -> dict:
     print("="*60 + "\n")
     
     # 1. Support software name
+    # 注：software_name 当前仅用于配置摘要展示，尚未接入执行主流程。
     config['software_name'] = questionary.text(
         "请输入待测支撑软件名称:",
         validate=lambda x: len(x.strip()) > 0
@@ -206,6 +210,7 @@ def get_support_software_config() -> dict:
             break
     
     # 4. Software activation command
+    # 注：activation_cmd 当前仅用于配置摘要展示，尚未接入脚本改写或命令执行链路。
     config['activation_cmd'] = questionary.text(
         "请输入待测支撑软件激活命令(例: 'module load software_name'):",
         validate=lambda x: len(x.strip()) > 0
@@ -244,6 +249,7 @@ def get_support_software_config() -> dict:
         config['is_sunway'] = False
     
     # Optional: Compute precision
+    # 注：precision 当前仅用于配置摘要展示，尚未接入执行主流程（脚本改写或效率计算）。
     precision = questionary.select(
         "请选择计算精度(可选):",
         choices=[
@@ -253,14 +259,14 @@ def get_support_software_config() -> dict:
         ]
     ).ask()
     config['precision'] = precision if precision != "默认" else "default"
-    
+
     # Optional: Node scale
     while True:
         nodes = questionary.text(
             "请输入节点规模(可选，留空表示使用脚本默认值):",
             default=""
         ).ask()
-        
+
         if not nodes:
             config['nodes'] = None
             break
@@ -270,7 +276,7 @@ def get_support_software_config() -> dict:
         else:
             logger.warning("请输入正整数或留空")
             continue
-    
+
     return config
 
 

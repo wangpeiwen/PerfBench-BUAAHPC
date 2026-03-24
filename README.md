@@ -9,15 +9,27 @@ PerfBench是一款轻量级的性能基准测试工具，专为SLURM和申威等
 - 🏗️ **多架构支持**：支持x86_64和aarch64等多种处理器架构
 - 🔍 **性能分析**：计算并行度、运行效率等关键性能指标
 - 📝 **自动化报告**：生成结构化的性能评估报告
-- 🛡️ **零外部依赖**：无需网络连接，完全本地化运行
+- 🛡️ **轻量依赖**：仅依赖少量 Python 库（见下方依赖说明），无需网络连接，完全本地化运行
 - ✅ **环境自适配**：自动检测和适配运行环境
 
 ## 系统要求
 
 - Python 3.6+
-- SLURM或申威集群管理系统
+- SLURM 或申威集群管理系统
 - 运行权限：需在集群登录节点上执行
 - 磁盘空间：需预留足够空间存储监控数据
+
+## 依赖说明
+
+PerfBench 依赖以下 Python 库（通过 `pip install` 安装）：
+
+| 库 | 版本要求 | 用途 |
+|----|---------|------|
+| `questionary` | >=1.10.0 | 交互式命令行问答界面 |
+| `reportlab` | >=3.6.0 | 生成 PDF 覆盖层（证书报告） |
+| `pypdf` | >=3.0.0 | 读取 PDF 模板并合并生成最终证书 |
+
+执行 `pip install -e .` 或 `pip install perfbench` 时会自动安装上述依赖。
 
 ## 安装
 
@@ -204,24 +216,31 @@ perfbench/
 ├── setup.py                  # Python包配置
 ├── README.md                 # 本文件
 ├── config/                   # 配置文件目录
-├── examples/                 # 示例脚本
-│   └── test_programs/        # 测试程序目录
+├── examples/                 # 示例脚本（预留目录，当前版本不包含）
 ├── perfbench/
 │   ├── __init__.py
 │   ├── __main__.py           # CLI主程序
-│   ├── platform_config.yaml  # 平台配置文件
+│   ├── platform_config.json  # 平台配置文件（运行时唯一配置源）
 │   ├── core/                 # 核心功能模块
 │   │   ├── initializer.py    # 环境初始化
 │   │   ├── script_processor.py # 脚本处理器
 │   │   └── validator.py      # 环境验证器
-│   ├── libs/                 # 不同架构的库文件
+│   ├── libs/                 # 不同架构的库文件（预留能力，当前版本不包含）
 │   ├── report/               # 报告生成模块
 │   │   └── certificate_generator.py
+│   ├── platform/             # 平台适配层（收拢所有平台差异）
+│   │   ├── base.py           # 抽象基类 PlatformAdapter
+│   │   ├── slurm.py          # SLURM 平台适配器
+│   │   └── sunway.py         # 申威平台适配器
+│   ├── analysis/             # 领域分析层
+│   │   ├── log_parser.py     # 日志解析器（Result 类）
+│   │   ├── metrics.py        # 指标计算器（并行度/效率）
+│   │   └── config_reader.py  # 平台配置读取器
 │   └── utils/                # 工具函数
 │       ├── logger.py         # 日志管理
-│       ├── monitoring.py     # 监控功能
-│       ├── result_handler.py # 结果处理
-│       └── system_checker.py # 系统检查
+│       ├── monitoring.py     # 脚本准备器 + 监控执行器
+│       ├── result_handler.py # 向后兼容导出层（实现已迁移至 analysis/）
+│       └── system_checker.py # 系统环境检查
 ```
 
 ## 许可证

@@ -9,6 +9,8 @@ setup(
     python_requires=">=3.6",
     install_requires=[
         "questionary>=1.10.0",
+        "reportlab>=3.6.0",   # PDF 覆盖层生成（certificate_generator.py）
+        "pypdf>=3.0.0",       # PDF 模板读取与合并（certificate_generator.py）
     ],
     entry_points={
         'console_scripts': [
