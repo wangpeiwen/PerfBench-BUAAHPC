@@ -5,7 +5,7 @@ PerfBench 包入口。
 
 职责（仅两类）：
 1. 参数解析 / 模式分发：解析 CLI 参数或调用交互模式，产出统一的评测请求参数。
-2. 阶段调度：按顺序调用 process_script()（含平台适配器）和报告生成，
+2. 阶段调度：按顺序调用 run_evaluation()（含平台适配器）和报告生成，
              不再持有平台分支细节或结果计算细节。
 
 平台差异已收拢至 perfbench.platform（SlurmAdapter / SunwayAdapter）。
@@ -18,7 +18,7 @@ import argparse
 
 from perfbench.core.initializer import initialize_environment
 from perfbench.core.validator import validate_environment
-from perfbench.core.script_processor import process_script
+from perfbench.core.script_processor import run_evaluation
 from perfbench.platform import get_platform_adapter
 from perfbench.utils.logger import setup_logging
 from perfbench.utils.progress_bar import StepProgress
@@ -152,11 +152,8 @@ def _run_evaluation(script_path: str, interval: int, output_dir: str,
         tuple[str, dict]: (job_dir, script_info)
     """
     adapter = get_platform_adapter(is_sunway)
-    job_dir, script_info = process_script(script_path, interval, output_dir, adapter)
+    job_dir, script_info = run_evaluation(script_path, interval, output_dir, adapter, progress)
 
-    progress.next("作业提交")    # 3. 作业提交
-    progress.next("监控中")      # 4. 监控中
-    progress.next("监控完成")    # 5. 监控完成
     logger.info(f"PerfBench 流程已完成，输出目录: {job_dir}")
     progress.next("报告生成中")  # 6. 报告生成中
 

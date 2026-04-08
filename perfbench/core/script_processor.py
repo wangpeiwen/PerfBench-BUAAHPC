@@ -3,7 +3,7 @@
 """
 Script processor module for PerfBench.
 
-提供统一的作业处理函数 process_script()，委托给平台适配器完成
+提供统一的作业处理函数 run_evaluation()，委托给平台适配器完成
 平台相关的脚本准备、作业提交、登录节点监控和等待逻辑。
 
 为保持向后兼容，同时保留：
@@ -25,8 +25,8 @@ logger = get_logger()
 # 核心统一流程
 # ---------------------------------------------------------------------------
 
-def process_script(script_path: str, interval: int, output_dir: str,
-                   platform_adapter: PlatformAdapter):
+def run_evaluation(script_path: str, interval: int, output_dir: str,
+                   platform_adapter: PlatformAdapter, progress):
     """
     处理作业脚本的统一流程，委托平台细节给适配器。
 
@@ -69,44 +69,17 @@ def process_script(script_path: str, interval: int, output_dir: str,
     # 4. 提交作业
     jobid = platform_adapter.submit_job(prepared_script)
     logger.info(f"作业已提交, JobID={jobid}")
+    progress.next("作业提交")
 
     # 5. 启动登录节点监控
     platform_adapter.start_monitoring(jobid, interval, job_dir)
+    progress.next("监控中")
 
     # 6. 等待作业完成
     platform_adapter.wait_for_job(jobid)
+    progress.next("监控完成")
 
     return job_dir, script_info
-
-
-# ---------------------------------------------------------------------------
-# 向后兼容包装
-# ---------------------------------------------------------------------------
-
-def process_slurm_script(script_path: str, interval: int, output_dir: str):
-    """
-    处理 SLURM 作业脚本（向后兼容入口）。
-
-    内部使用 SlurmAdapter，行为与重构前完全一致。
-
-    Returns:
-        tuple[str, dict]: (job_dir, script_info)
-    """
-    adapter = get_platform_adapter(is_sunway=False)
-    return process_script(script_path, interval, output_dir, adapter)
-
-
-def process_sunway_script(script_path: str, interval: int, output_dir: str):
-    """
-    处理申威（Sunway）作业脚本（向后兼容入口）。
-
-    内部使用 SunwayAdapter，行为与重构前完全一致。
-
-    Returns:
-        tuple[str, dict]: (job_dir, script_info)
-    """
-    adapter = get_platform_adapter(is_sunway=True)
-    return process_script(script_path, interval, output_dir, adapter)
 
 
 # ---------------------------------------------------------------------------
