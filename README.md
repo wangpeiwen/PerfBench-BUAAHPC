@@ -5,8 +5,8 @@ PerfBench是一款轻量级的性能基准测试工具，专为SLURM和申威等
 ## 特性
 
 - 🔄 **自动化脚本处理**：解析和修改SLURM/申威作业脚本，自动注入性能监控代码
-- 📊 **全面的性能监控**：收集CPU、内存、GPU等资源使用数据
-- 🏗️ **多架构支持**：支持x86_64和aarch64等多种处理器架构
+- 📊 **全面的性能监控**：收集CPU、内存、DCU/GPU等资源使用数据
+- 🏗️ **多架构支持**：支持x86_64、aarch64、海光DCU等多种处理器/加速器架构
 - 🔍 **性能分析**：计算并行度、运行效率等关键性能指标
 - 📝 **自动化报告**：生成结构化的性能评估报告
 - 🛡️ **轻量依赖**：仅依赖少量 Python 库（见下方依赖说明），无需网络连接，完全本地化运行
@@ -16,6 +16,8 @@ PerfBench是一款轻量级的性能基准测试工具，专为SLURM和申威等
 
 - Python 3.6+
 - SLURM 或申威集群管理系统
+- 海光 DCU 监控需要计算节点上可用 `hy-smi` 或 `rocm-smi` 命令
+- SLURM 20.11+（DCU 多节点采集依赖 `srun --overlap`）
 - 运行权限：需在集群登录节点上执行
 - 磁盘空间：需预留足够空间存储监控数据
 
@@ -80,7 +82,20 @@ chmod +x perfbench.py
 ./perfbench.py -s /path/to/script.sh -t 60 -o /path/to/output -sw
 ```
 
-#### 4. 显示版本信息
+#### 5. 启用海光 DCU 监控
+在海光 DCU 集群上，启用 `hy-smi` 加速器监控（所有计算节点自动采集）：
+```bash
+./perfbench.py -s /path/to/script.slurm -t 60 -o /path/to/output --dcu
+```
+
+也可以指定 DCU 独立的采样间隔（秒）：
+```bash
+./perfbench.py -s /path/to/script.slurm -t 60 -o /path/to/output --dcu --dcu-interval 10
+```
+
+> 如果 `platform_config.json` 中已设置 `"dcu_monitoring": true`，则无需 `--dcu` 参数，工具会自动启用。
+
+#### 6. 显示版本信息
 ```bash
 ./perfbench.py --version
 ```
@@ -95,6 +110,8 @@ chmod +x perfbench.py
 | `-t, --interval` | - | 设置性能数据采集间隔（秒，必需） | `-t 60` |
 | `-o, --output` | - | 指定输出目录路径（必需） | `-o /tmp/output` |
 | `-sw` | - | 指定为申威平台（可选，默认自动检测） | `-sw` |
+| `--dcu` | - | 启用海光 DCU (hy-smi) 加速器监控 | `--dcu` |
+| `--dcu-interval` | - | DCU 采样间隔（秒），默认使用 `-t` 值 | `--dcu-interval 10` |
 | `--force` | - | 跳过环境检测，仅用于调试 | `--force` |
 | `--version` | - | 显示工具版本信息 | `./perfbench.py --version` |
 
@@ -112,6 +129,9 @@ chmod +x perfbench.py
 
 # 提交申威作业进行监控
 ./perfbench.py -s ./examples/test_programs/sample.sh -t 60 -o /tmp/perfbench_results -sw
+
+# 在海光 DCU 集群上提交作业并采集 DCU 指标（10秒采样间隔）
+./perfbench.py -s ./examples/test_programs/sample.slurm -t 60 -o /tmp/perfbench_results --dcu --dcu-interval 10
 ```
 
 ## 输出说明
@@ -122,6 +142,7 @@ chmod +x perfbench.py
 |---------|------|
 | `modified_script.slurm` | 修改后的SLURM脚本（注入了监控代码） |
 | `monitor_data/` | 性能监控数据文件 |
+| `dcu_logs/` | 海光 DCU 监控日志（启用 DCU 监控时生成，每节点一个文件） |
 | `perfbench.log` | 详细的执行日志 |
 | `performance_report.json` | 结构化的性能数据分析报告 |
 | `efficiency_report.pdf` | PDF格式的可视化报告（如生成） |
@@ -136,6 +157,7 @@ chmod +x perfbench.py
 - **核心数量**：使用的CPU核心总数
 - **并行效率**：计算得出的并行度效率（相对于基准配置）
 - **运行时间**：作业总运行时间
+- **DCU 指标**（启用 DCU 监控时）：平均/峰值 DCU 利用率、显存使用率、功耗、温度
 
 ## 工作流程
 
@@ -188,6 +210,49 @@ chmod +x perfbench.py
 - 🔐 **权限检查**：确保对输出目录有写入权限
 - 🧪 **调试模式**：使用 `--force` 参数可跳过环境检查，仅用于开发调试
 
+## 海光 DCU 监控说明
+
+PerfBench 支持在海光 DCU 集群上自动采集加速器指标，通过 `hy-smi`（海光定制版 `rocm-smi`）读取 DCU 利用率、显存、温度、功耗等数据。
+
+### 启用方式
+
+两种方式任选其一：
+
+1. **配置文件**：在 `perfbench/platform_config.json` 中设置 `"dcu_monitoring": true`
+2. **CLI 参数**：提交时添加 `--dcu` 参数
+
+### 工作原理
+
+- 在作业脚本副本中注入 DCU 采样块（原始脚本不修改）
+- 通过 `srun --overlap` 在所有计算节点上启动后台 `hy-smi` 采样循环
+- 每个节点写入独立日志文件到 `{output_dir}/dcu_logs/dcu_hysmi_{hostname}.log`
+- 作业结束后 SLURM cgroup 自动清理采样进程
+- PerfBench 解析所有节点日志，汇总 DCU 利用率、显存、功耗、温度等指标
+
+### 采集指标
+
+| 指标 | 来源 | 说明 |
+|------|------|------|
+| DCU% | `hy-smi` 默认输出 | 计算引擎利用率 |
+| VRAM% | `hy-smi` 默认输出 | 显存使用率 |
+| AvgPwr | `hy-smi` 默认输出 | 平均功耗 (W) |
+| Temp | `hy-smi` 默认输出 | 温度 (°C) |
+| SCLK/MCLK | `hy-smi` 默认输出 | 系统/显存时钟频率 |
+
+### 配置项
+
+`platform_config.json` 中的 DCU 相关字段：
+
+```json
+{
+    "dcu_monitoring": true,
+    "dcu_sampling_interval": null
+}
+```
+
+- `dcu_monitoring`：布尔值，启用/禁用 DCU 采集
+- `dcu_sampling_interval`：DCU 采样间隔（秒），为 `null` 时使用全局 `-t` 参数值
+
 ## 故障排除
 
 ### 问题：未检测到SLURM环境
@@ -207,6 +272,13 @@ chmod +x perfbench.py
 - 增加采集间隔时间（-t 参数），减少数据压力
 - 确保输出目录有足够的磁盘空间
 - 检查作业是否正常完成
+
+### 问题：DCU 监控日志为空或未生成
+**解决方案**：
+- 确认计算节点上 `hy-smi` 或 `rocm-smi` 命令可用：`which hy-smi`
+- 检查 SLURM 版本是否 >= 20.11（`srun --overlap` 需要此版本）
+- 查看 `dcu_logs/` 目录下是否有 `[WARN]` 标记的失败记录
+- 若需要 `module load` 才能使用 `hy-smi`，请在作业脚本中提前加载对应模块
 
 ## 项目结构
 

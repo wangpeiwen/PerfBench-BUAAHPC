@@ -23,6 +23,16 @@ logger = get_logger()
 class SlurmAdapter(PlatformAdapter):
     """SLURM 平台适配器，封装 sbatch / sacct / squeue 等命令集合。"""
 
+    def __init__(self, dcu_monitoring: bool = False,
+                 dcu_interval: int | None = None):
+        """
+        Args:
+            dcu_monitoring: 是否启用 DCU (hy-smi) 采样注入
+            dcu_interval:   DCU 采样间隔（秒），为 None 时使用全局 interval
+        """
+        self.dcu_monitoring = dcu_monitoring
+        self.dcu_interval = dcu_interval
+
     # ------------------------------------------------------------------
     # 脚本准备（提交前逻辑）
     # ------------------------------------------------------------------
@@ -30,13 +40,15 @@ class SlurmAdapter(PlatformAdapter):
     def prepare_script(self, script_path: str, script_info: dict,
                        interval: int, output_dir: str) -> str:
         """
-        生成含监控代码的 SLURM 脚本副本，注入环境记录 echo 行。
+        生成含监控代码的 SLURM 脚本副本，注入环境记录 echo 行及可选的 DCU 采样块。
 
         Returns:
             str: 改写后的脚本路径（output_dir/modified_script.slurm）
         """
         modified_script = generate_monitoring_script(
-            script_path, script_info, interval, output_dir
+            script_path, script_info, interval, output_dir,
+            dcu_monitoring=self.dcu_monitoring,
+            dcu_interval=self.dcu_interval,
         )
         logger.info(f"[SLURM] 监控脚本已生成: {modified_script}")
         return modified_script

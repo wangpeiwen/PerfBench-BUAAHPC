@@ -33,6 +33,7 @@ supported_CMD = [
     "scontrol",
     "bjobs",
     "cnload",
+    "hysmi",
 ]
 
 
@@ -83,6 +84,8 @@ class Result:
             else:  # SLURM
                 if self.cmd_name == "sacct":
                     self.parse_sacct()
+                elif self.cmd_name == "hysmi":
+                    self.parse_hysmi()
                 # sstat / sinfo / seff / scontrol 待后续补全
         except Exception as e:
             logger.error(f"日志文件解析失败: {e}")
@@ -288,3 +291,141 @@ class Result:
     def parse_scontrol(self):
         """解析 scontrol 日志（作业详情）。待补全。"""
         pass
+
+    # ------------------------------------------------------------------
+    # 海光 DCU (hy-smi) 日志解析
+    # ------------------------------------------------------------------
+
+    def parse_hysmi(self):
+        """
+        解析 out_dir/dcu_logs/ 下所有 dcu_hysmi_*.log 文件。
+
+        日志格式（每个文件对应一个计算节点）：
+            ===== node: node001 =====
+            start_time: 2025-04-08 10:00:00
+
+            ----- sample 1 | 20250408_100005 -----
+            ==========================System Management Interface ====...
+            ================================================================
+            DCU  Temp   AvgPwr  SCLK     MCLK    Fan   Perf  PwrCap  VRAM%  DCU%
+            1    48.0c  23.0W   1319Mhz  800Mhz  0.0%  auto  300.0W    0%   0%
+            ...
+            ================================================================
+            =================================End of SMI Log==============...
+
+        解析结果存入 self.data，每条记录为一个采样点的一个 DCU 设备。
+        """
+        dcu_log_dir = os.path.join(self.out_dir, "dcu_logs")
+        pattern = os.path.join(dcu_log_dir, "dcu_hysmi_*.log")
+        hysmi_files = glob.glob(pattern)
+        if not hysmi_files:
+            raise FileNotFoundError(
+                f"未找到 hy-smi 日志文件，模式: {pattern}"
+            )
+
+        for file_path in hysmi_files:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # 提取节点名
+            node_match = re.search(r'===== node: (\S+) =====', content)
+            node_name = node_match.group(1) if node_match else "unknown"
+
+            # 按采样分隔符切分
+            sample_blocks = re.split(
+                r'----- sample (\d+) \| (\d{8}_\d{6}) -----',
+                content
+            )
+            # split 结果: [前言, idx1, ts1, block1, idx2, ts2, block2, ...]
+            i = 1
+            while i + 2 < len(sample_blocks):
+                sample_idx = int(sample_blocks[i])
+                time_stamp = sample_blocks[i + 1]
+                block_text = sample_blocks[i + 2]
+                i += 3
+
+                for line in block_text.splitlines():
+                    line = line.strip()
+                    if not line or line.startswith('=') or line.startswith('DCU'):
+                        continue
+                    parts = line.split()
+                    if len(parts) < 9:
+                        continue
+                    try:
+                        int(parts[0])
+                    except ValueError:
+                        continue
+
+                    self.data.append({
+                        "node": node_name,
+                        "time_stamp": time_stamp,
+                        "sample_idx": sample_idx,
+                        "dcu_id": parts[0],
+                        "temp": parts[1],
+                        "avg_power": parts[2],
+                        "sclk": parts[3],
+                        "mclk": parts[4],
+                        "fan": parts[5],
+                        "perf": parts[6],
+                        "power_cap": parts[7],
+                        "vram_pct": parts[8] if len(parts) > 8 else None,
+                        "dcu_pct": parts[9] if len(parts) > 9 else None,
+                    })
+
+    def get_dcu_summary(self) -> dict | None:
+        """
+        从 hy-smi 数据中提取 DCU 利用率摘要。
+
+        Returns:
+            dict: 包含平均/峰值 DCU 利用率、显存使用率、功耗、温度等汇总信息；
+                  数据为空时返回 None。
+        """
+        if not self.data or self.cmd_name != "hysmi":
+            return None
+
+        dcu_pcts = []
+        vram_pcts = []
+        powers = []
+        temps = []
+
+        for row in self.data:
+            # DCU 利用率: "0%" / "94%"
+            if row.get("dcu_pct"):
+                try:
+                    dcu_pcts.append(float(row["dcu_pct"].rstrip('%')))
+                except (ValueError, AttributeError):
+                    pass
+            # 显存使用率: "0%" / "85%"
+            if row.get("vram_pct"):
+                try:
+                    vram_pcts.append(float(row["vram_pct"].rstrip('%')))
+                except (ValueError, AttributeError):
+                    pass
+            # 功耗: "23.0W"
+            if row.get("avg_power"):
+                try:
+                    powers.append(float(row["avg_power"].rstrip('Ww')))
+                except (ValueError, AttributeError):
+                    pass
+            # 温度: "48.0c"
+            if row.get("temp"):
+                try:
+                    temps.append(float(row["temp"].rstrip('cC')))
+                except (ValueError, AttributeError):
+                    pass
+
+        if not dcu_pcts:
+            return None
+
+        nodes = set(row["node"] for row in self.data)
+        samples = set((row["node"], row["time_stamp"]) for row in self.data)
+
+        return {
+            "avg_dcu_pct": sum(dcu_pcts) / len(dcu_pcts),
+            "max_dcu_pct": max(dcu_pcts),
+            "avg_vram_pct": sum(vram_pcts) / len(vram_pcts) if vram_pcts else 0.0,
+            "avg_power": sum(powers) / len(powers) if powers else 0.0,
+            "avg_temp": sum(temps) / len(temps) if temps else 0.0,
+            "num_nodes": len(nodes),
+            "total_samples": len(samples),
+        }
