@@ -48,23 +48,21 @@ def parse_sbatch_directive(line, info):
     """
     line = line.replace('#SBATCH', '').strip()
     
-    # 常见参数匹配规则
     patterns = {
-        'job_name': r'--job-name[= ](\S+)',
-        'nodes': r'--nodes[= ](\d+)',
+        'job_name': r'(?:--job-name|-J)[= ](\S+)',
+        'nodes': r'(?:--nodes|-N)[= ](\d+)',
         'tasks_per_node': r'--ntasks-per-node[= ](\d+)',
         'cpus_per_task': r'--cpus-per-task[= ](\d+)',
-        'time_limit': r'--time[= ](\S+)',
-        'partition': r'--partition[= ](\S+)',
-        'output': r'--output[= ](\S+)',
-        'error': r'--error[= ](\S+)'
+        'time_limit': r'(?:--time|-t)[= ](\S+)',
+        'partition': r'(?:--partition|-p)[= ](\S+)',
+        'output': r'(?:--output|-o)[= ](\S+)',
+        'error': r'(?:--error|-e)[= ](\S+)'
     }
     
     for key, pattern in patterns.items():
         match = re.search(pattern, line)
         if match:
             value = match.group(1)
-            # 数值类型转换
             if key in ['nodes', 'tasks_per_node', 'cpus_per_task']:
                 value = int(value)
             info[key] = value
