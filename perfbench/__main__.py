@@ -8,7 +8,7 @@ PerfBench 包入口。
 2. 阶段调度：按顺序调用 run_evaluation()（含平台适配器）和报告生成，
              不再持有平台分支细节或结果计算细节。
 
-平台差异已收拢至 perfbench.platform（SlurmAdapter / SunwayAdapter）。
+平台差异已收拢至 perfbench.adapters.platform（SlurmAdapter / SunwayAdapter）。
 结果分析已收拢至 perfbench.analysis（log_parser / metrics / config_reader）。
 """
 
@@ -20,7 +20,8 @@ import argparse
 from perfbench.core.initializer import initialize_environment
 from perfbench.core.validator import validate_environment
 from perfbench.core.script_processor import run_evaluation
-from perfbench.platform import get_platform_adapter
+from perfbench.adapters.platform import get_platform_adapter
+from perfbench.adapters.accelerator import get_accelerator_monitor
 from perfbench.utils.logger import setup_logging
 from perfbench.utils.progress_bar import StepProgress
 from perfbench.analysis import (
@@ -46,10 +47,15 @@ def parse_arguments():
     parser.add_argument('-v', action='store_true', help='运行工具适配性测试')
     parser.add_argument('--force', action='store_true', help='跳过环境检测（仅用于调试）')
     parser.add_argument('-sw', action='store_true', help='指定为申威平台（默认自动检测）')
+    parser.add_argument('--accelerator', type=str, default=None,
+                        choices=['dcu', 'none'],
+                        help='加速卡类型（覆盖 platform_config.json 中的 accelerator_type）')
+    parser.add_argument('--accelerator-interval', type=int, default=None,
+                        help='加速卡采样间隔（秒），默认使用全局 interval')
     parser.add_argument('--dcu', action='store_true',
-                        help='启用 DCU (hy-smi) 监控（覆盖 platform_config.json 设置）')
+                        help='启用 DCU 监控（等价于 --accelerator dcu）')
     parser.add_argument('--dcu-interval', type=int, default=None,
-                        help='DCU 采样间隔（秒），默认使用全局 interval')
+                        help='DCU 采样间隔（秒），等价于 --accelerator-interval')
     parser.add_argument('--version', action='version', version='%(prog)s 1.0.0')
     return parser
 
@@ -102,8 +108,8 @@ def main():
 
             job_dir, script_info = _run_evaluation(
                 script_path, interval, output_dir, is_sunway, progress, logger,
-                dcu_override=args.dcu,
-                dcu_interval_override=args.dcu_interval,
+                accelerator_override=args.accelerator or ('dcu' if args.dcu else None),
+                accelerator_interval_override=args.accelerator_interval or args.dcu_interval,
             )
             _generate_report(logger, job_dir, script_info, interval, is_sunway)
             progress.finish()                      # 7. 报告生成完成
@@ -152,26 +158,27 @@ def main():
 
 def _run_evaluation(script_path: str, interval: int, output_dir: str,
                     is_sunway: bool, progress, logger,
-                    dcu_override: bool = False,
-                    dcu_interval_override: int | None = None):
+                    accelerator_override: str | None = None,
+                    accelerator_interval_override: int | None = None):
     """
     通过平台适配器执行完整评测链路（提交 → 监控 → 等待）。
 
     Returns:
         tuple[str, dict]: (job_dir, script_info)
     """
-    # 读取平台配置，提取 DCU 监控设置
+    # 读取平台配置，构建加速卡监控器
     platform_config = get_platform_config()
-    dcu_monitoring = dcu_override
-    dcu_interval = dcu_interval_override
-    if platform_config and not dcu_monitoring:
-        dcu_monitoring = platform_config.get("dcu_monitoring", False)
-    if platform_config and dcu_interval is None:
-        dcu_interval = platform_config.get("dcu_sampling_interval")
 
+    # CLI 覆盖：将 accelerator_override 合并到配置副本中
+    accel_config = dict(platform_config) if platform_config else {}
+    if accelerator_override:
+        accel_config["accelerator_type"] = accelerator_override
+    if accelerator_interval_override is not None:
+        accel_config["accelerator_sampling_interval"] = accelerator_interval_override
+
+    accel_monitor = get_accelerator_monitor(accel_config)
     adapter = get_platform_adapter(is_sunway,
-                                   dcu_monitoring=dcu_monitoring,
-                                   dcu_interval=dcu_interval)
+                                   accelerator_monitor=accel_monitor)
     job_dir, script_info = run_evaluation(script_path, interval, output_dir, adapter, progress)
 
     logger.info(f"PerfBench 流程已完成，输出目录: {job_dir}")
@@ -247,34 +254,30 @@ def _generate_report(logger, job_dir: str, script_info: dict,
         "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
 
-    # DCU 监控数据集成（若存在 dcu_logs 目录则解析）
-    dcu_log_dir = os.path.join(job_dir, "dcu_logs")
-    if os.path.isdir(dcu_log_dir):
+    # 加速卡监控数据集成（通过 AcceleratorMonitor 解耦）
+    accel_monitor = get_accelerator_monitor(platform_config)
+    log_subdir = accel_monitor.get_log_subdir()
+    if log_subdir and os.path.isdir(os.path.join(job_dir, log_subdir)):
         try:
-            dcu_result = Result(
-                cmd_name="hysmi",
-                out_dir=job_dir,
-                interval=interval,
-                platform=platform_label,
-            )
-            dcu_summary = dcu_result.get_dcu_summary()
-            if dcu_summary:
+            parsed_data = accel_monitor.parse_logs(job_dir)
+            summary = accel_monitor.get_summary(parsed_data)
+            if summary:
                 logger.info(
-                    f"DCU 监控摘要: avg_dcu={dcu_summary['avg_dcu_pct']:.1f}%, "
-                    f"avg_vram={dcu_summary['avg_vram_pct']:.1f}%, "
-                    f"avg_power={dcu_summary['avg_power']:.1f}W, "
-                    f"nodes={dcu_summary['num_nodes']}"
+                    f"加速卡监控摘要: avg_util={summary['avg_dcu_pct']:.1f}%, "
+                    f"avg_vram={summary['avg_vram_pct']:.1f}%, "
+                    f"avg_power={summary['avg_power']:.1f}W, "
+                    f"nodes={summary['num_nodes']}"
                 )
-                report_info["dcu_avg_util"] = f"{dcu_summary['avg_dcu_pct']:.1f}%"
-                report_info["dcu_avg_vram"] = f"{dcu_summary['avg_vram_pct']:.1f}%"
-                report_info["dcu_avg_power"] = f"{dcu_summary['avg_power']:.1f}W"
-                report_info["dcu_avg_temp"] = f"{dcu_summary['avg_temp']:.1f}°C"
-                report_info["dcu_max_util"] = f"{dcu_summary['max_dcu_pct']:.1f}%"
-                report_info["dcu_num_nodes"] = dcu_summary["num_nodes"]
+                report_info["dcu_avg_util"] = f"{summary['avg_dcu_pct']:.1f}%"
+                report_info["dcu_avg_vram"] = f"{summary['avg_vram_pct']:.1f}%"
+                report_info["dcu_avg_power"] = f"{summary['avg_power']:.1f}W"
+                report_info["dcu_avg_temp"] = f"{summary['avg_temp']:.1f}°C"
+                report_info["dcu_max_util"] = f"{summary['max_dcu_pct']:.1f}%"
+                report_info["dcu_num_nodes"] = summary["num_nodes"]
         except FileNotFoundError:
-            logger.warning("DCU 日志目录存在但无日志文件，跳过 DCU 分析")
+            logger.warning("加速卡日志目录存在但无日志文件，跳过加速卡分析")
         except Exception as e:
-            logger.warning(f"DCU 日志解析失败: {e}")
+            logger.warning(f"加速卡日志解析失败: {e}")
 
     logger.info(f"报告信息: {report_info}")
     generate_certificate(report_info, job_dir)

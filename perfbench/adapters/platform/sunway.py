@@ -10,7 +10,7 @@
 import re
 import subprocess
 import time
-from perfbench.platform.base import PlatformAdapter
+from perfbench.adapters.platform.base import PlatformAdapter
 from perfbench.utils.logger import get_logger
 from perfbench.utils.monitoring import start_bjob_monitoring_on_login
 

@@ -82,18 +82,23 @@ chmod +x perfbench.py
 ./perfbench.py -s /path/to/script.sh -t 60 -o /path/to/output -sw
 ```
 
-#### 5. 启用海光 DCU 监控
-在海光 DCU 集群上，启用 `hy-smi` 加速器监控（所有计算节点自动采集）：
+#### 5. 启用加速卡监控
+通过 `--accelerator` 参数指定加速卡类型（当前支持 `dcu`），在所有计算节点自动采集：
+```bash
+./perfbench.py -s /path/to/script.slurm -t 60 -o /path/to/output --accelerator dcu
+```
+
+也可以使用 `--dcu` 快捷方式（等价于 `--accelerator dcu`）：
 ```bash
 ./perfbench.py -s /path/to/script.slurm -t 60 -o /path/to/output --dcu
 ```
 
-也可以指定 DCU 独立的采样间隔（秒）：
+指定加速卡独立的采样间隔（秒）：
 ```bash
-./perfbench.py -s /path/to/script.slurm -t 60 -o /path/to/output --dcu --dcu-interval 10
+./perfbench.py -s /path/to/script.slurm -t 60 -o /path/to/output --accelerator dcu --accelerator-interval 10
 ```
 
-> 如果 `platform_config.json` 中已设置 `"dcu_monitoring": true`，则无需 `--dcu` 参数，工具会自动启用。
+> 如果 `platform_config.json` 中已设置 `"accelerator_type": "dcu"`，则无需 `--accelerator` 或 `--dcu` 参数，工具会自动启用。
 
 #### 6. 显示版本信息
 ```bash
@@ -110,8 +115,10 @@ chmod +x perfbench.py
 | `-t, --interval` | - | 设置性能数据采集间隔（秒，必需） | `-t 60` |
 | `-o, --output` | - | 指定输出目录路径（必需） | `-o /tmp/output` |
 | `-sw` | - | 指定为申威平台（可选，默认自动检测） | `-sw` |
-| `--dcu` | - | 启用海光 DCU (hy-smi) 加速器监控 | `--dcu` |
-| `--dcu-interval` | - | DCU 采样间隔（秒），默认使用 `-t` 值 | `--dcu-interval 10` |
+| `--accelerator` | - | 加速卡类型（`dcu` / `none`），覆盖配置文件 | `--accelerator dcu` |
+| `--accelerator-interval` | - | 加速卡采样间隔（秒），默认使用 `-t` 值 | `--accelerator-interval 10` |
+| `--dcu` | - | 启用海光 DCU 监控（等价于 `--accelerator dcu`） | `--dcu` |
+| `--dcu-interval` | - | DCU 采样间隔（秒），等价于 `--accelerator-interval` | `--dcu-interval 10` |
 | `--force` | - | 跳过环境检测，仅用于调试 | `--force` |
 | `--version` | - | 显示工具版本信息 | `./perfbench.py --version` |
 
@@ -131,7 +138,7 @@ chmod +x perfbench.py
 ./perfbench.py -s ./examples/test_programs/sample.sh -t 60 -o /tmp/perfbench_results -sw
 
 # 在海光 DCU 集群上提交作业并采集 DCU 指标（10秒采样间隔）
-./perfbench.py -s ./examples/test_programs/sample.slurm -t 60 -o /tmp/perfbench_results --dcu --dcu-interval 10
+./perfbench.py -s ./examples/test_programs/sample.slurm -t 60 -o /tmp/perfbench_results --accelerator dcu --accelerator-interval 10
 ```
 
 ## 输出说明
@@ -210,16 +217,16 @@ chmod +x perfbench.py
 - 🔐 **权限检查**：确保对输出目录有写入权限
 - 🧪 **调试模式**：使用 `--force` 参数可跳过环境检查，仅用于开发调试
 
-## 海光 DCU 监控说明
+## 加速卡监控说明
 
-PerfBench 支持在海光 DCU 集群上自动采集加速器指标，通过 `hy-smi`（海光定制版 `rocm-smi`）读取 DCU 利用率、显存、温度、功耗等数据。
+PerfBench 通过独立的加速卡监控层支持不同类型的加速器指标采集，当前已实现海光 DCU（`hy-smi`）。加速卡监控与调度平台（SLURM / 申威）完全解耦，可自由组合。
 
 ### 启用方式
 
 两种方式任选其一：
 
-1. **配置文件**：在 `perfbench/platform_config.json` 中设置 `"dcu_monitoring": true`
-2. **CLI 参数**：提交时添加 `--dcu` 参数
+1. **配置文件**：在 `perfbench/platform_config.json` 中设置 `"accelerator_type": "dcu"`
+2. **CLI 参数**：提交时添加 `--accelerator dcu` 或 `--dcu`
 
 ### 工作原理
 
@@ -241,17 +248,17 @@ PerfBench 支持在海光 DCU 集群上自动采集加速器指标，通过 `hy-
 
 ### 配置项
 
-`platform_config.json` 中的 DCU 相关字段：
+`platform_config.json` 中的加速卡相关字段：
 
 ```json
 {
-    "dcu_monitoring": true,
-    "dcu_sampling_interval": null
+    "accelerator_type": "dcu",
+    "accelerator_sampling_interval": null
 }
 ```
 
-- `dcu_monitoring`：布尔值，启用/禁用 DCU 采集
-- `dcu_sampling_interval`：DCU 采样间隔（秒），为 `null` 时使用全局 `-t` 参数值
+- `accelerator_type`：加速卡类型，可选 `"dcu"` / `"none"`（不启用），未来可扩展 `"nvidia"` 等
+- `accelerator_sampling_interval`：加速卡采样间隔（秒），为 `null` 时使用全局 `-t` 参数值
 
 ## 故障排除
 
@@ -300,10 +307,15 @@ perfbench/
 │   ├── libs/                 # 不同架构的库文件（预留能力，当前版本不包含）
 │   ├── report/               # 报告生成模块
 │   │   └── certificate_generator.py
-│   ├── platform/             # 平台适配层（收拢所有平台差异）
-│   │   ├── base.py           # 抽象基类 PlatformAdapter
-│   │   ├── slurm.py          # SLURM 平台适配器
-│   │   └── sunway.py         # 申威平台适配器
+│   ├── adapters/             # 适配层（平台 + 加速卡，完全解耦）
+│   │   ├── platform/         # 平台适配层
+│   │   │   ├── base.py       # 抽象基类 PlatformAdapter
+│   │   │   ├── slurm.py      # SLURM 平台适配器
+│   │   │   └── sunway.py     # 申威平台适配器
+│   │   └── accelerator/      # 加速卡监控层
+│   │       ├── base.py       # 抽象基类 AcceleratorMonitor
+│   │       ├── dcu.py        # 海光 DCU (hy-smi) 监控器
+│   │       └── none.py       # 空实现（无加速卡）
 │   ├── analysis/             # 领域分析层
 │   │   ├── log_parser.py     # 日志解析器（Result 类）
 │   │   ├── metrics.py        # 指标计算器（并行度/效率）

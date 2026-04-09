@@ -31,12 +31,11 @@ logger = get_logger()
 
 def generate_monitoring_script(original_script: str, script_info: dict,
                                 interval: int, output_dir: str,
-                                dcu_monitoring: bool = False,
-                                dcu_interval: int | None = None) -> str:
+                                extra_injection: str = "") -> str:
     """
     生成包含监控代码的 SLURM 脚本副本。
 
-    在所有 #SBATCH 指令之后注入环境记录 echo 行，以及（可选的）DCU 采样块。
+    在所有 #SBATCH 指令之后注入环境记录 echo 行，以及（可选的）额外采样代码块。
     改写后的脚本写入 output_dir/modified_script.slurm。
 
     Args:
@@ -44,8 +43,7 @@ def generate_monitoring_script(original_script: str, script_info: dict,
         script_info:     parse_slurm_script() 返回的脚本信息（当前未使用，预留接口）
         interval:        监控采集间隔（秒）
         output_dir:      输出目录
-        dcu_monitoring:  是否启用 DCU (hy-smi) 采样注入
-        dcu_interval:    DCU 采样间隔（秒），为 None 时使用 interval
+        extra_injection: 额外注入的 bash 代码段（如加速卡采样块），为空则不注入
 
     Returns:
         str: 改写后的脚本路径
@@ -60,10 +58,9 @@ def generate_monitoring_script(original_script: str, script_info: dict,
         f'echo "SLURM_JOB_ID=${{SLURM_JOB_ID}}" >> {output_dir}/job_node_info.txt\n'
     )
 
-    # DCU 采样注入段
-    if dcu_monitoring:
-        actual_interval = dcu_interval if dcu_interval is not None else interval
-        env_setup += _generate_dcu_sampler_block(output_dir, actual_interval)
+    # 加速卡采样注入段（由外部 AcceleratorMonitor 生成）
+    if extra_injection:
+        env_setup += extra_injection
 
     # 确保存在 shebang
     if not lines or not lines[0].startswith('#!'):
@@ -85,49 +82,6 @@ def generate_monitoring_script(original_script: str, script_info: dict,
     os.chmod(output_script, 0o755)
 
     return output_script
-
-
-def _generate_dcu_sampler_block(output_dir: str, interval: int) -> str:
-    """
-    生成 DCU (hy-smi) 采样器的 bash 注入块。
-
-    通过 srun --overlap 在所有计算节点上启动后台采样循环，
-    每节点写入独立日志文件到 {output_dir}/dcu_logs/。
-
-    Args:
-        output_dir: 日志输出目录
-        interval:   采样间隔（秒）
-
-    Returns:
-        str: 可直接拼接到脚本中的 bash 代码段
-    """
-    dcu_dir = f"{output_dir}/dcu_logs"
-    return f"""
-# ─────────────── PerfBench DCU 采样器 开始 ───────────────
-_PERFBENCH_DCU_DIR="{dcu_dir}"
-mkdir -p "$_PERFBENCH_DCU_DIR"
-_PERFBENCH_NUM_NODES=${{SLURM_JOB_NUM_NODES:-1}}
-srun --nodes=$_PERFBENCH_NUM_NODES --ntasks=$_PERFBENCH_NUM_NODES \\
-     --ntasks-per-node=1 --overlap bash -c '
-_NODE=$(hostname -s)
-_LOGFILE="'"$_PERFBENCH_DCU_DIR"'""/dcu_hysmi_$_NODE.log"
-echo "===== node: $_NODE =====" > "$_LOGFILE"
-echo "start_time: $(date "+%F %T")" >> "$_LOGFILE"
-_SAMPLE=0
-while true; do
-  _SAMPLE=$((_SAMPLE + 1))
-  echo "" >> "$_LOGFILE"
-  echo "----- sample $_SAMPLE | $(date "+%Y%m%d_%H%M%S") -----" >> "$_LOGFILE"
-  hy-smi >> "$_LOGFILE" 2>&1 || \\
-    rocm-smi >> "$_LOGFILE" 2>&1 || \\
-    echo "[WARN] hy-smi/rocm-smi failed at sample $_SAMPLE" >> "$_LOGFILE"
-  sleep {interval}
-done
-' &
-_PERFBENCH_DCU_PID=$!
-echo $_PERFBENCH_DCU_PID > "{output_dir}/dcu_sampler.pid"
-# ─────────────── PerfBench DCU 采样器 结束 ───────────────
-"""
 
 
 def generate_monitoring_code(interval: int, output_dir: str) -> str:

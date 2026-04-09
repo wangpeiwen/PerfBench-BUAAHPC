@@ -15,8 +15,8 @@ import os
 from datetime import datetime
 from perfbench.utils.logger import get_logger
 from perfbench.utils.script_parser import parse_slurm_script
-from perfbench.platform import get_platform_adapter
-from perfbench.platform.base import PlatformAdapter
+from perfbench.adapters.platform import get_platform_adapter
+from perfbench.adapters.platform.base import PlatformAdapter
 
 logger = get_logger()
 

@@ -23,8 +23,9 @@ dist/
 .DS_Store
 Thumbs.db
 
-# agen相关
+# agent相关
 
 prompts/
 .claude/
 llm_resources/
+.codex/

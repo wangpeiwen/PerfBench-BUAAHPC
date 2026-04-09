@@ -10,7 +10,9 @@ SLURM 平台适配器。
 import os
 import subprocess
 import time
-from perfbench.platform.base import PlatformAdapter
+from perfbench.adapters.platform.base import PlatformAdapter
+from perfbench.adapters.accelerator.base import AcceleratorMonitor
+from perfbench.adapters.accelerator.none import NullMonitor
 from perfbench.utils.logger import get_logger
 from perfbench.utils.monitoring import (
     generate_monitoring_script,
@@ -23,15 +25,12 @@ logger = get_logger()
 class SlurmAdapter(PlatformAdapter):
     """SLURM 平台适配器，封装 sbatch / sacct / squeue 等命令集合。"""
 
-    def __init__(self, dcu_monitoring: bool = False,
-                 dcu_interval: int | None = None):
+    def __init__(self, accelerator_monitor: AcceleratorMonitor | None = None):
         """
         Args:
-            dcu_monitoring: 是否启用 DCU (hy-smi) 采样注入
-            dcu_interval:   DCU 采样间隔（秒），为 None 时使用全局 interval
+            accelerator_monitor: 加速卡监控器实例，为 None 时使用 NullMonitor（不采集）
         """
-        self.dcu_monitoring = dcu_monitoring
-        self.dcu_interval = dcu_interval
+        self.accelerator_monitor = accelerator_monitor or NullMonitor()
 
     # ------------------------------------------------------------------
     # 脚本准备（提交前逻辑）
@@ -45,10 +44,12 @@ class SlurmAdapter(PlatformAdapter):
         Returns:
             str: 改写后的脚本路径（output_dir/modified_script.slurm）
         """
+        sampler_block = self.accelerator_monitor.generate_sampler_block(
+            output_dir, interval
+        )
         modified_script = generate_monitoring_script(
             script_path, script_info, interval, output_dir,
-            dcu_monitoring=self.dcu_monitoring,
-            dcu_interval=self.dcu_interval,
+            extra_injection=sampler_block,
         )
         logger.info(f"[SLURM] 监控脚本已生成: {modified_script}")
         return modified_script
