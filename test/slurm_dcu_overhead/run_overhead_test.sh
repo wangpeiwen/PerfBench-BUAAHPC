@@ -36,7 +36,7 @@ sinfo -N -o "%N %t %f %m %G" > "$BASE_DIR/cluster_snapshot.log" 2>&1 || true
 # ----------------------------------------------------------
 # Phase 1: 裸跑基准
 # ----------------------------------------------------------
-echo "[Phase 1/$4] Bare runs (direct sbatch)..."
+echo "[Phase 1/4] Bare runs (direct sbatch)..."
 for i in $(seq 1 $REPEAT); do
     echo "  Bare run $i/$REPEAT"
     OUT_DIR="$BASE_DIR/bare_$i"
