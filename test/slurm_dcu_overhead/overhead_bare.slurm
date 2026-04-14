@@ -19,6 +19,6 @@ echo "OVERHEAD_TEST_START=$(date +%s.%N)"
 echo "SLURM_JOB_ID=$SLURM_JOB_ID"
 echo "SLURM_JOB_NODELIST=$SLURM_JOB_NODELIST"
 
-mpirun lmp_mpi -sf gpu -pk gpu 4 -in /public/home/buaahpc/retro/PerfBench-BUAAHPC/slurm_scripts/1m_in.lj
+mpirun lmp_mpi -sf gpu -pk gpu 4 -in /public/home/buaahpc/retro/PerfBench-BUAAHPC/test/slurm_dcu_overhead/1m_in.lj
 
 echo "OVERHEAD_TEST_END=$(date +%s.%N)"

@@ -15,9 +15,10 @@ set -euo pipefail
 
 REPEAT=${1:-5}
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-BASE_DIR="/public/home/buaahpc/retro/PerfBench-BUAAHPC/overhead_results_${TIMESTAMP}"
-SCRIPT_DIR="/public/home/buaahpc/retro/PerfBench-BUAAHPC/slurm_scripts"
-PERFBENCH="/public/home/buaahpc/retro/PerfBench-BUAAHPC/perfbench.py"
+PROJ_ROOT="/public/home/buaahpc/retro/PerfBench-BUAAHPC"
+BASE_DIR="${PROJ_ROOT}/test/slurm_dcu_overhead/overhead_results_${TIMESTAMP}"
+SCRIPT_DIR="${PROJ_ROOT}/test/slurm_dcu_overhead"
+PERFBENCH="${PROJ_ROOT}/perfbench.py"
 WORKLOAD="${SCRIPT_DIR}/overhead_bare.slurm"
 
 mkdir -p "$BASE_DIR"

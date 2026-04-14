@@ -37,7 +37,7 @@
 ### 1. 运行测试
 
 ```bash
-cd /public/home/buaahpc/retro/PerfBench-BUAAHPC/slurm_scripts
+cd /public/home/buaahpc/retro/PerfBench-BUAAHPC/test/slurm_dcu_overhead
 
 # 每种模式跑 5 次（默认）
 bash run_overhead_test.sh
