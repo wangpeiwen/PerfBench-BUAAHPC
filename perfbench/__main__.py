@@ -16,6 +16,7 @@ from datetime import datetime
 import os
 import sys
 import argparse
+from typing import Optional
 
 from perfbench.core.initializer import initialize_environment
 from perfbench.core.validator import validate_environment
@@ -158,8 +159,8 @@ def main():
 
 def _run_evaluation(script_path: str, interval: int, output_dir: str,
                     is_sunway: bool, progress, logger,
-                    accelerator_override: str | None = None,
-                    accelerator_interval_override: int | None = None):
+                    accelerator_override: Optional[str] = None,
+                    accelerator_interval_override: Optional[int] = None):
     """
     通过平台适配器执行完整评测链路（提交 → 监控 → 等待）。
 

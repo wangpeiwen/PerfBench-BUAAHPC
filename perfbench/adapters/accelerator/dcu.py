@@ -11,6 +11,7 @@ log_parser.py 的 parse_hysmi() / get_dcu_summary() 迁移而来，
 import os
 import re
 import glob
+from typing import Optional
 from perfbench.adapters.accelerator.base import AcceleratorMonitor
 from perfbench.utils.logger import get_logger
 
@@ -20,7 +21,7 @@ logger = get_logger()
 class DcuMonitor(AcceleratorMonitor):
     """海光 DCU 监控器，通过 hy-smi / rocm-smi 采集设备指标。"""
 
-    def __init__(self, interval: int | None = None):
+    def __init__(self, interval: Optional[int] = None):
         """
         Args:
             interval: DCU 专用采样间隔（秒），为 None 时由调用方传入全局 interval
@@ -142,7 +143,7 @@ echo $_PERFBENCH_DCU_PID > "{output_dir}/dcu_sampler.pid"
     # 汇总
     # ------------------------------------------------------------------
 
-    def get_summary(self, parsed_data: list[dict]) -> dict | None:
+    def get_summary(self, parsed_data: list[dict]) -> Optional[dict]:
         """
         从 hy-smi 解析数据中提取 DCU 利用率摘要。
 

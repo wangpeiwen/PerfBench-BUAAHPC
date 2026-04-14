@@ -7,6 +7,7 @@
 无需直接感知 SLURM 或申威的具体实现细节。
 """
 
+from typing import Optional
 from perfbench.adapters.platform.base import PlatformAdapter
 from perfbench.adapters.platform.slurm import SlurmAdapter
 from perfbench.adapters.platform.sunway import SunwayAdapter
@@ -14,7 +15,7 @@ from perfbench.adapters.accelerator.base import AcceleratorMonitor
 
 
 def get_platform_adapter(is_sunway: bool,
-                         accelerator_monitor: AcceleratorMonitor | None = None
+                         accelerator_monitor: Optional[AcceleratorMonitor] = None
                          ) -> PlatformAdapter:
     """
     根据平台标志返回对应的平台适配器实例。

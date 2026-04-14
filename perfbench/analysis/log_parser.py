@@ -20,6 +20,7 @@ import os
 import re
 import glob
 from datetime import datetime
+from typing import Optional
 from perfbench.utils.logger import get_logger
 
 logger = get_logger()
@@ -110,7 +111,7 @@ class Result:
     # 运行时间提取
     # ------------------------------------------------------------------
 
-    def get_elapsed_time(self) -> int | None:
+    def get_elapsed_time(self) -> Optional[int]:
         """
         根据平台类型分发到对应的运行时间提取方法。
 
@@ -124,7 +125,7 @@ class Result:
         logger.warning("正在尝试从错误的日志中提取作业完成时间信息")
         return None
 
-    def _get_elapsed_time_slurm(self) -> int | None:
+    def _get_elapsed_time_slurm(self) -> Optional[int]:
         """提取 SLURM 平台的作业运行时间（秒）。"""
         if not self.data:
             logger.warning("sacct 数据为空")
@@ -138,7 +139,7 @@ class Result:
             logger.warning(f"提取 SLURM 运行时间失败: {e}")
             return None
 
-    def _get_elapsed_time_sunway(self) -> int | None:
+    def _get_elapsed_time_sunway(self) -> Optional[int]:
         """提取申威平台的作业运行时间（秒）。"""
         if not self.data:
             logger.warning("bjobs 数据为空")

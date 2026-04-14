@@ -10,6 +10,7 @@ SLURM 平台适配器。
 import os
 import subprocess
 import time
+from typing import Optional
 from perfbench.adapters.platform.base import PlatformAdapter
 from perfbench.adapters.accelerator.base import AcceleratorMonitor
 from perfbench.adapters.accelerator.none import NullMonitor
@@ -25,7 +26,7 @@ logger = get_logger()
 class SlurmAdapter(PlatformAdapter):
     """SLURM 平台适配器，封装 sbatch / sacct / squeue 等命令集合。"""
 
-    def __init__(self, accelerator_monitor: AcceleratorMonitor | None = None):
+    def __init__(self, accelerator_monitor: Optional[AcceleratorMonitor] = None):
         """
         Args:
             accelerator_monitor: 加速卡监控器实例，为 None 时使用 NullMonitor（不采集）

@@ -8,6 +8,7 @@
 """
 
 from abc import ABC, abstractmethod
+from typing import Optional
 
 
 class AcceleratorMonitor(ABC):
@@ -49,7 +50,7 @@ class AcceleratorMonitor(ABC):
         """
 
     @abstractmethod
-    def get_summary(self, parsed_data: list[dict]) -> dict | None:
+    def get_summary(self, parsed_data: list[dict]) -> Optional[dict]:
         """
         从解析数据中提取汇总指标。
 

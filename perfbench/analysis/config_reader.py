@@ -14,12 +14,13 @@
 
 import json
 from pathlib import Path
+from typing import Optional
 from perfbench.utils.logger import get_logger
 
 logger = get_logger()
 
 
-def get_platform_config() -> dict | None:
+def get_platform_config() -> Optional[dict]:
     """
     从 platform_config.json 中读取平台配置信息。
 

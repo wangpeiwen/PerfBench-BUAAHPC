@@ -26,12 +26,13 @@
     后续可通过将其纳入 platform_config.json 消除硬编码）。
 """
 
+from typing import Optional
 from perfbench.utils.logger import get_logger
 
 logger = get_logger()
 
 
-def calculate_parallelism(platform_name: str, node_num: int) -> dict | None:
+def calculate_parallelism(platform_name: str, node_num: int) -> Optional[dict]:
     """
     根据平台类型和节点数计算并行度。
 
@@ -103,7 +104,7 @@ def calculate_parallelism(platform_name: str, node_num: int) -> dict | None:
 
 
 def calculate_efficiency(platform_config: dict, parallelism_info: dict,
-                         elapsed_time: int) -> float | None:
+                         elapsed_time: int) -> Optional[float]:
     """
     计算并行效率（百分比）。
 
