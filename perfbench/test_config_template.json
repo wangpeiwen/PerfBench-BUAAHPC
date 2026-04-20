@@ -1,0 +1,42 @@
+{
+  "global": {
+    "granularity": "board",
+    "repeat": 1,
+    "aggregation": "mean"
+  },
+  "scaling": {
+    "mode": "strong",
+    "scales": [1, 2, 4, 8],
+    "datasets": [],
+    "compute_ratios": [],
+    "compute_ratio_method": ""
+  },
+  "accuracy": {
+    "enabled": false,
+    "reference_file": "",
+    "output_parser": "",
+    "parser_options": {
+      "column": 0,
+      "delimiter": ",",
+      "skip_header": true
+    },
+    "metrics": ["absolute_error", "relative_error", "rmse"],
+    "thresholds": {
+      "max_relative_error": null,
+      "max_absolute_error": null,
+      "max_rmse": null
+    }
+  },
+  "support": {
+    "enabled": false,
+    "before_script": "",
+    "after_script": "",
+    "metric_types": ["exec_perf"],
+    "autotune_apps": []
+  },
+  "job": {
+    "script": "",
+    "node_placeholder": "__NODES__",
+    "dataset_placeholder": "__DATASET__"
+  }
+}

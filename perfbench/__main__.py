@@ -33,6 +33,7 @@ from perfbench.analysis import (
 )
 from perfbench.report.certificate_generator import generate_certificate
 from perfbench.interactive import interactive_main
+from perfbench.orchestrator.config_loader import load_test_config, validate_test_config
 
 
 # ---------------------------------------------------------------------------
@@ -48,8 +49,10 @@ def parse_arguments():
     parser.add_argument('-v', action='store_true', help='运行工具适配性测试')
     parser.add_argument('--force', action='store_true', help='跳过环境检测（仅用于调试）')
     parser.add_argument('-sw', action='store_true', help='指定为申威平台（默认自动检测）')
+    parser.add_argument('--tianhe', action='store_true',
+                        help='指定为天河迈创平台（使用 msub/mqueue 调度）')
     parser.add_argument('--accelerator', type=str, default=None,
-                        choices=['dcu', 'none'],
+                        choices=['dcu', 'matrix', 'none'],
                         help='加速卡类型（覆盖 platform_config.json 中的 accelerator_type）')
     parser.add_argument('--accelerator-interval', type=int, default=None,
                         help='加速卡采样间隔（秒），默认使用全局 interval')
@@ -58,6 +61,16 @@ def parse_arguments():
     parser.add_argument('--dcu-interval', type=int, default=None,
                         help='DCU 采样间隔（秒），等价于 --accelerator-interval')
     parser.add_argument('--version', action='version', version='%(prog)s 1.0.0')
+
+    # ---- 新增：多规模/支撑软件评测参数 ----
+    parser.add_argument('--config', type=str, default=None,
+                        help='测试配置文件路径（.yaml/.json），启用多规模/支撑软件评测模式')
+    parser.add_argument('--granularity', type=str, default=None,
+                        choices=['board', 'core'],
+                        help='测试粒度等级: board（板卡级，默认）/ core（内部核级）')
+    parser.add_argument('--init-config', action='store_true',
+                        help='生成测试配置模板文件到当前目录')
+
     return parser
 
 
@@ -90,6 +103,16 @@ def main():
         # ---- 验证模式 ----
         if args.v:
             validate_environment(force=args.force)
+            return
+
+        # ---- 生成配置模板 ----
+        if args.init_config:
+            _copy_config_template()
+            return
+
+        # ---- 多规模/支撑软件评测模式 ----
+        if args.config:
+            _run_config_mode(args, logger)
             return
 
         # ---- CLI 评测模式 ----
@@ -151,6 +174,118 @@ def main():
         import traceback
         traceback.print_exc()
         sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# 内部辅助：生成配置模板
+# ---------------------------------------------------------------------------
+
+def _copy_config_template():
+    """将内置配置模板复制到当前目录。"""
+    import shutil
+    template_dir = os.path.dirname(os.path.abspath(__file__))
+    for ext in ("yaml", "json"):
+        src = os.path.join(template_dir, f"test_config_template.{ext}")
+        dst = os.path.join(os.getcwd(), f"test_config_template.{ext}")
+        if os.path.isfile(src):
+            shutil.copy2(src, dst)
+            print(f"已生成: {dst}")
+    print("请根据实际需求修改配置文件后，使用 --config 参数启动评测。")
+
+
+# ---------------------------------------------------------------------------
+# 内部辅助：多规模/支撑软件评测模式
+# ---------------------------------------------------------------------------
+
+def _run_config_mode(args, logger):
+    """
+    基于配置文件的评测模式入口。
+
+    根据配置中 support.enabled 字段自动选择：
+    - False → MultiScaleOrchestrator（应用软件评测）
+    - True  → BeforeAfterOrchestrator（支撑软件评测）
+    """
+    from perfbench.orchestrator.config_loader import load_test_config, validate_test_config
+    from perfbench.orchestrator.multi_scale import MultiScaleOrchestrator
+    from perfbench.orchestrator.before_after import BeforeAfterOrchestrator
+    from perfbench.report.test_plan_generator import generate_test_plan
+    from perfbench.report.full_report_generator import generate_full_report
+
+    # 1. 加载并校验配置
+    config = load_test_config(args.config)
+    if config is None:
+        sys.exit(1)
+
+    # CLI --granularity 覆盖配置文件
+    if args.granularity:
+        config.setdefault("global", {})["granularity"] = args.granularity
+
+    errors = validate_test_config(config)
+    if errors:
+        for e in errors:
+            logger.error(f"配置校验失败: {e}")
+        sys.exit(1)
+
+    # 2. 确定输出目录
+    output_dir = args.output or os.path.join(
+        os.getcwd(), f"perfbench_output_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+    os.makedirs(output_dir, exist_ok=True)
+
+    # 3. 构建平台适配器
+    is_sunway = args.sw
+    is_tianhe = args.tianhe
+    platform_config = get_platform_config()
+    accel_config = dict(platform_config) if platform_config else {}
+    if args.accelerator or args.dcu:
+        accel_config["accelerator_type"] = args.accelerator or "dcu"
+    if args.accelerator_interval or args.dcu_interval:
+        accel_config["accelerator_sampling_interval"] = (
+            args.accelerator_interval or args.dcu_interval)
+
+    accel_monitor = get_accelerator_monitor(accel_config)
+    adapter = get_platform_adapter(is_sunway, is_tianhe=is_tianhe,
+                                   accelerator_monitor=accel_monitor)
+
+    # 4. 生成测试大纲
+    plan_path = generate_test_plan(config, platform_config, output_dir)
+    logger.info(f"测试大纲已生成: {plan_path}")
+
+    # 5. 分发到编排引擎
+    support_enabled = config.get("support", {}).get("enabled", False)
+
+    if support_enabled:
+        logger.info("模式: 支撑软件前后对比评测")
+        orch = BeforeAfterOrchestrator(config, adapter, output_dir)
+    else:
+        logger.info("模式: 多规模应用软件评测")
+        orch = MultiScaleOrchestrator(config, adapter, output_dir)
+
+    result = orch.run()
+
+    # 6. 生成完整评测报告
+    md_path, json_path = generate_full_report(
+        config, platform_config, result, output_dir,
+        is_support=support_enabled)
+    logger.info(f"测试报告已生成: {md_path}, {json_path}")
+
+    # 7. 输出结果摘要
+    if "error" in result:
+        logger.error(f"评测失败: {result['error']}")
+        sys.exit(1)
+
+    logger.info(f"评测完成，输出目录: {output_dir}")
+
+    if support_enabled:
+        improvements = result.get("improvements", {})
+        for metric, vals in improvements.items():
+            logger.info(f"  {metric}: {vals}")
+    else:
+        report = result.get("scalability_report", [])
+        for entry in report:
+            logger.info(
+                f"  cores={entry.get('cores')}, "
+                f"speedup={entry.get('speedup', 0):.2f}, "
+                f"efficiency={entry.get('efficiency', 0):.2f}%")
 
 
 # ---------------------------------------------------------------------------

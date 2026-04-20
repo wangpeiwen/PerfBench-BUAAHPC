@@ -1,0 +1,138 @@
+# PerfBench 测试配置模板
+# ============================================================
+# 使用方法：
+#   1. perfbench init-config 生成本模板
+#   2. 根据测试需求填写各节内容
+#   3. perfbench app scale --config test_config.yaml
+#      或 perfbench support perf --config test_config.yaml
+#
+# 也支持 JSON 格式（test_config.json），字段名相同
+# ============================================================
+
+# ----------------------------------------------------------
+# 全局设置
+# ----------------------------------------------------------
+global:
+  # 测试粒度等级: board（板卡级，默认） / core（内部核级）
+  # board: 以加速卡/核组为并行单元
+  # core:  以处理器内部核为并行单元
+  granularity: board
+
+  # 每个规模的重复测试次数（默认 1）
+  repeat: 1
+
+  # 多次测试结果聚合方式: mean / median / min
+  aggregation: mean
+
+# ----------------------------------------------------------
+# 可扩展性测试
+# ----------------------------------------------------------
+scaling:
+  # 测试模式: strong（强可扩展） / weak（弱可扩展）
+  mode: strong
+
+  # 规模列表（节点数）
+  # 第一个为基准规模，后续为目标规模
+  scales: [1, 2, 4, 8]
+
+  # --- 以下仅 weak 模式需要填写 ---
+
+  # 各规模对应的数据集路径
+  # 数量必须与 scales 一致
+  datasets: []
+  #   - /path/to/data_1node.dat
+  #   - /path/to/data_2node.dat
+  #   - /path/to/data_4node.dat
+  #   - /path/to/data_8node.dat
+
+  # 各规模相对基准的计算量倍数 F_s
+  # 第一个必须为 1.0（基准自身），数量必须与 scales 一致
+  compute_ratios: []
+  #   - 1.0
+  #   - 2.0
+  #   - 4.0
+  #   - 8.0
+
+  # F_s 计算方法说明（写入测试报告）
+  compute_ratio_method: ""
+  # 示例: "网格数线性增长，计算量与网格数成正比"
+
+# ----------------------------------------------------------
+# 数值精度测试
+# ----------------------------------------------------------
+accuracy:
+  # 是否启用精度测试
+  enabled: false
+
+  # 参照结果文件路径（标准答案）
+  reference_file: ""
+  # 示例: /path/to/reference_result.csv
+
+  # 程序输出解析方式
+  # 内置解析器: column_csv
+  # 格式: "解析器名:参数"
+  output_parser: ""
+  # 示例: "column_csv"  （默认第0列，逗号分隔，跳过首行）
+
+  # 解析器参数（可选，覆盖默认值）
+  parser_options:
+    column: 0           # 列索引（0-based）
+    delimiter: ","      # 分隔符
+    skip_header: true   # 是否跳过首行
+
+  # 要计算的精度指标
+  metrics:
+    - absolute_error
+    - relative_error
+    - rmse
+
+  # 精度阈值（可选，用于判定是否通过）
+  thresholds:
+    max_relative_error: null   # 例: 1.0 表示相对误差不超过 1%
+    max_absolute_error: null
+    max_rmse: null
+
+# ----------------------------------------------------------
+# 支撑软件评测（仅 perfbench support 使用）
+# ----------------------------------------------------------
+support:
+  # 是否启用支撑软件评测模式
+  enabled: false
+
+  # 无支撑软件版本的作业脚本
+  before_script: ""
+  # 示例: /path/to/job_without_support.slurm
+
+  # 有支撑软件版本的作业脚本
+  after_script: ""
+  # 示例: /path/to/job_with_support.slurm
+
+  # 性能提升指标类型（可多选）
+  metric_types:
+    - exec_perf        # 执行性能提升
+  #   - io              # I/O 性能提升
+  #   - compile         # 编译优化提升
+  #   - mixed_precision # 混合精度性能提升
+  #   - autotune        # 自动调优效果
+
+  # --- autotune 模式需要多组应用 ---
+  # autotune_apps:
+  #   - before: /path/to/app1_raw.slurm
+  #     after:  /path/to/app1_tuned.slurm
+  #   - before: /path/to/app2_raw.slurm
+  #     after:  /path/to/app2_tuned.slurm
+
+# ----------------------------------------------------------
+# 作业脚本设置
+# ----------------------------------------------------------
+job:
+  # 作业脚本路径（应用软件评测时使用）
+  script: ""
+  # 示例: /path/to/job.slurm
+
+  # 脚本中节点数占位符（可选）
+  # 如果脚本中包含此占位符，PerfBench 会自动替换为当前规模的节点数
+  node_placeholder: "__NODES__"
+
+  # 脚本中数据集路径占位符（弱可扩展时使用）
+  dataset_placeholder: "__DATASET__"

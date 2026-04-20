@@ -119,6 +119,10 @@ chmod +x perfbench.py
 | `--accelerator-interval` | - | 加速卡采样间隔（秒），默认使用 `-t` 值 | `--accelerator-interval 10` |
 | `--dcu` | - | 启用海光 DCU 监控（等价于 `--accelerator dcu`） | `--dcu` |
 | `--dcu-interval` | - | DCU 采样间隔（秒），等价于 `--accelerator-interval` | `--dcu-interval 10` |
+| `--config` | - | 测试配置文件路径（.yaml/.json），启用多规模/支撑软件评测 | `--config test.yaml` |
+| `--granularity` | - | 测试粒度：`board`（板卡级，默认）/ `core`（内部核级） | `--granularity core` |
+| `--init-config` | - | 生成测试配置模板文件到当前目录 | `--init-config` |
+| `--tianhe` | - | 指定为天河迈创平台（使用 msub/mqueue 调度） | `--tianhe` |
 | `--force` | - | 跳过环境检测，仅用于调试 | `--force` |
 | `--version` | - | 显示工具版本信息 | `./perfbench.py --version` |
 
@@ -139,6 +143,18 @@ chmod +x perfbench.py
 
 # 在海光 DCU 集群上提交作业并采集 DCU 指标（10秒采样间隔）
 ./perfbench.py -s ./examples/test_programs/sample.slurm -t 60 -o /tmp/perfbench_results --accelerator dcu --accelerator-interval 10
+
+# 生成多规模测试配置模板
+./perfbench.py --init-config
+
+# 使用配置文件进行多规模可扩展性评测（应用软件）
+./perfbench.py --config test_config_template.yaml -o /tmp/multi_scale_results
+
+# 使用配置文件进行支撑软件前后对比评测
+./perfbench.py --config support_test.yaml -o /tmp/support_results
+
+# 指定内部核级粒度（覆盖配置文件中的 granularity）
+./perfbench.py --config test_config_template.yaml --granularity core -o /tmp/results
 ```
 
 ## 输出说明
@@ -153,6 +169,9 @@ chmod +x perfbench.py
 | `perfbench.log` | 详细的执行日志 |
 | `performance_report.json` | 结构化的性能数据分析报告 |
 | `efficiency_report.pdf` | PDF格式的可视化报告（如生成） |
+| `test_plan.md` | 测试大纲（`--config` 模式自动生成，符合§3.1） |
+| `test_report.md` | 完整评测报告（`--config` 模式自动生成，符合§3.2） |
+| `test_report.json` | 结构化评测结果（`--config` 模式自动生成） |
 
 ### 性能报告内容
 
@@ -257,8 +276,58 @@ PerfBench 通过独立的加速卡监控层支持不同类型的加速器指标�
 }
 ```
 
-- `accelerator_type`：加速卡类型，可选 `"dcu"` / `"none"`（不启用），未来可扩展 `"nvidia"` 等
+- `accelerator_type`：加速卡类型，可选 `"dcu"` / `"matrix"` / `"none"`（不启用）
 - `accelerator_sampling_interval`：加速卡采样间隔（秒），为 `null` 时使用全局 `-t` 参数值
+
+## 天河迈创平台支持
+
+PerfBench 支持天河迈创超算平台的自研调度系统（msub/mqueue/mdel）和迈创加速卡（matrix-smi）。
+
+### 启用方式
+
+通过 `--tianhe` 参数指定天河平台：
+```bash
+./perfbench.py -s /path/to/script.sh -t 60 -o /path/to/output --tianhe
+```
+
+启用迈创加速卡监控：
+```bash
+./perfbench.py -s /path/to/script.sh -t 60 -o /path/to/output --tianhe --accelerator matrix
+```
+
+### 脚本格式
+
+天河平台作业脚本使用 `#MSUB` 注释头：
+```bash
+#!/bin/bash
+#MSUB -J my_job
+#MSUB -N 2
+#MSUB -c 20
+#MSUB -m matrix
+#MSUB -q main
+
+# 用户计算代码
+mpirun ./my_app
+```
+
+### 调度命令
+
+| 命令 | 用途 |
+|------|------|
+| `msub` | 提交作业 |
+| `mqueue` | 查询作业状态 |
+| `mdel` | 删除/取消作业 |
+| `minfo` | 查看节点信息 |
+| `mres` | 资源申请 |
+
+### 迈创加速卡监控
+
+| 指标 | 来源 | 说明 |
+|------|------|------|
+| Matrix% | `matrix-smi` | 加速卡计算利用率 |
+| VRAM% | `matrix-smi` | 显存使用率 |
+| AvgPwr | `matrix-smi` | 平均功耗 (W) |
+| Temp | `matrix-smi` | 温度 (°C) |
 
 ## 故障排除
 
@@ -287,6 +356,15 @@ PerfBench 通过独立的加速卡监控层支持不同类型的加速器指标�
 - 查看 `dcu_logs/` 目录下是否有 `[WARN]` 标记的失败记录
 - 若需要 `module load` 才能使用 `hy-smi`，请在作业脚本中提前加载对应模块
 
+## 研究论文
+
+本项目产出两篇互补的研究论文：
+
+| 论文 | 标题 | 方向 | 目录 |
+|------|------|------|------|
+| Paper A | Low-Perturbation Performance Testing with Scale Compliance Verification | 芯片级观测 + 规模合规性验证 | `paper-a/` |
+| Paper B | Test First, Profile Later: Three-Phase Script Injection for Core-Level Performance Diagnosis | 核级注入诊断（三阶段分离） | `paper-b/` |
+
 ## 项目结构
 
 ```
@@ -306,19 +384,33 @@ perfbench/
 │   │   └── validator.py      # 环境验证器
 │   ├── libs/                 # 不同架构的库文件（预留能力，当前版本不包含）
 │   ├── report/               # 报告生成模块
-│   │   └── certificate_generator.py
+│   │   ├── certificate_generator.py  # PDF 证书海报生成
+│   │   ├── test_plan_generator.py    # 测试大纲自动生成（符合§3.1）
+│   │   └── full_report_generator.py  # 完整评测报告生成（符合§3.2）
 │   ├── adapters/             # 适配层（平台 + 加速卡，完全解耦）
 │   │   ├── platform/         # 平台适配层
 │   │   │   ├── base.py       # 抽象基类 PlatformAdapter
 │   │   │   ├── slurm.py      # SLURM 平台适配器
-│   │   │   └── sunway.py     # 申威平台适配器
+│   │   │   ├── sunway.py     # 申威平台适配器
+│   │   │   └── tianhe.py     # 天河迈创平台适配器（msub/mqueue/mdel）
 │   │   └── accelerator/      # 加速卡监控层
 │   │       ├── base.py       # 抽象基类 AcceleratorMonitor
 │   │       ├── dcu.py        # 海光 DCU (hy-smi) 监控器
+│   │       ├── matrix.py     # 迈创 Matrix (matrix-smi) 监控器
 │   │       └── none.py       # 空实现（无加速卡）
+│   ├── hardware_registry.json # 处理器核数认定配置表（配置化，支持动态扩展）
+│   ├── test_config_template.yaml # 多规模测试配置模板（YAML）
+│   ├── test_config_template.json # 多规模测试配置模板（JSON）
+│   ├── orchestrator/          # 编排引擎（多规模/支撑软件评测）
+│   │   ├── config_loader.py   # 测试配置加载器（YAML/JSON 双格式）
+│   │   ├── multi_scale.py     # 多规模自动提交编排器
+│   │   └── before_after.py    # 支撑软件前后对比编排器
 │   ├── analysis/             # 领域分析层
 │   │   ├── log_parser.py     # 日志解析器（Result 类）
-│   │   ├── metrics.py        # 指标计算器（并行度/效率）
+│   │   ├── metrics.py        # 指标计算器（并行度查表/效率，对标规范公式）
+│   │   ├── scalability.py    # 可扩展性计算（强/弱可扩展并行效率）
+│   │   ├── accuracy.py       # 数值模拟精度（绝对误差/相对误差/RMSE）
+│   │   ├── improvement.py    # 支撑软件性能提升率（6个公式）
 │   │   └── config_reader.py  # 平台配置读取器
 │   └── utils/                # 工具函数
 │       ├── logger.py         # 日志管理

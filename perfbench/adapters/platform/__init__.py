@@ -8,28 +8,33 @@
 """
 
 from typing import Optional
+from typing import Optional
 from perfbench.adapters.platform.base import PlatformAdapter
 from perfbench.adapters.platform.slurm import SlurmAdapter
 from perfbench.adapters.platform.sunway import SunwayAdapter
+from perfbench.adapters.platform.tianhe import TianheAdapter
 from perfbench.adapters.accelerator.base import AcceleratorMonitor
 
 
 def get_platform_adapter(is_sunway: bool,
+                         is_tianhe: bool = False,
                          accelerator_monitor: Optional[AcceleratorMonitor] = None
                          ) -> PlatformAdapter:
     """
     根据平台标志返回对应的平台适配器实例。
 
     Args:
-        is_sunway:           True 表示申威平台，False 表示 SLURM 平台
-        accelerator_monitor: 加速卡监控器实例（仅 SLURM 平台生效），
-                             为 None 时不采集加速卡指标
+        is_sunway:           True 表示申威平台
+        is_tianhe:           True 表示天河迈创平台
+        accelerator_monitor: 加速卡监控器实例，为 None 时不采集加速卡指标
 
     Returns:
         PlatformAdapter: 对应平台的适配器实例
     """
     if is_sunway:
         return SunwayAdapter()
+    if is_tianhe:
+        return TianheAdapter(accelerator_monitor=accelerator_monitor)
     return SlurmAdapter(accelerator_monitor=accelerator_monitor)
 
 
@@ -37,5 +42,6 @@ __all__ = [
     "PlatformAdapter",
     "SlurmAdapter",
     "SunwayAdapter",
+    "TianheAdapter",
     "get_platform_adapter",
 ]
