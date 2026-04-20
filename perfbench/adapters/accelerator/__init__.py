@@ -11,6 +11,7 @@ from typing import Optional
 from perfbench.adapters.accelerator.base import AcceleratorMonitor
 from perfbench.adapters.accelerator.none import NullMonitor
 from perfbench.adapters.accelerator.dcu import DcuMonitor
+from perfbench.adapters.accelerator.matrix import MatrixMonitor
 
 
 def get_accelerator_monitor(config: Optional[dict]) -> AcceleratorMonitor:
@@ -32,7 +33,10 @@ def get_accelerator_monitor(config: Optional[dict]) -> AcceleratorMonitor:
         return DcuMonitor(
             interval=config.get("accelerator_sampling_interval")
         )
-    # 未来扩展: elif accel_type == "nvidia": return NvidiaMonitor(...)
+    if accel_type == "matrix":
+        return MatrixMonitor(
+            interval=config.get("accelerator_sampling_interval")
+        )
     return NullMonitor()
 
 
@@ -40,5 +44,6 @@ __all__ = [
     "AcceleratorMonitor",
     "NullMonitor",
     "DcuMonitor",
+    "MatrixMonitor",
     "get_accelerator_monitor",
 ]

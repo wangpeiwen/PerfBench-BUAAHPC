@@ -30,6 +30,10 @@ prompts/
 llm_resources/
 .codex/
 
+paper-*/
+doc/
+STATUS.md
+
 # 杂项
 #   用于存放超算平台环境依赖的wheels文件的目录
 pkgdownloads/

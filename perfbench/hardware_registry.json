@@ -1,0 +1,100 @@
+{
+  "processors": {
+    "SW26010": {
+      "boards_per_node": 4,
+      "cores_per_node": 260,
+      "method_latex_board": "node\\_num \\times 4",
+      "method_latex_core": "node\\_num \\times 260",
+      "note": "4核组, 每核组1主核+64从核"
+    },
+    "SW39000": {
+      "boards_per_node": 6,
+      "cores_per_node": 390,
+      "method_latex_board": "node\\_num \\times 6",
+      "method_latex_core": "node\\_num \\times 390",
+      "note": "6核组"
+    },
+    "飞腾-64": {
+      "boards_per_node": 1,
+      "cores_per_node": 64,
+      "method_latex_board": "node\\_num \\times 1",
+      "method_latex_core": "node\\_num \\times 64",
+      "note": "纯CPU，板卡级=CPU socket数"
+    },
+    "Matrix2000": {
+      "boards_per_node": 2,
+      "cores_per_node": 256,
+      "method_latex_board": "node\\_num \\times 2",
+      "method_latex_core": "node\\_num \\times 256",
+      "note": "2卡/节点"
+    },
+    "Matrix3000": {
+      "boards_per_node": 2,
+      "cores_per_node": 1648,
+      "method_latex_board": "node\\_num \\times 2",
+      "method_latex_core": "node\\_num \\times 1648",
+      "note": "16 CPU核+96控制核+1536加速核, 2卡/节点"
+    },
+    "DCU Z100": {
+      "boards_per_node": 4,
+      "cores_per_node": 288,
+      "method_latex_board": "node\\_num \\times 4",
+      "method_latex_core": "node\\_num \\times (4\\times64 + 32)",
+      "note": "4卡/节点, 64CU×4 + 32 CPU核"
+    },
+    "DCU Z100L": {
+      "boards_per_node": 4,
+      "cores_per_node": 288,
+      "method_latex_board": "node\\_num \\times 4",
+      "method_latex_core": "node\\_num \\times (4\\times64 + 32)",
+      "note": "同 Z100"
+    },
+    "BW1000(80CU)": {
+      "boards_per_node": 4,
+      "cores_per_node": 352,
+      "method_latex_board": "node\\_num \\times 4",
+      "method_latex_core": "node\\_num \\times (4\\times80 + 32)",
+      "note": "4卡/节点, 80CU×4 + 32 CPU核"
+    },
+    "BW1000(88CU)": {
+      "boards_per_node": 4,
+      "cores_per_node": 384,
+      "method_latex_board": "node\\_num \\times 4",
+      "method_latex_core": "node\\_num \\times (4\\times88 + 32)",
+      "note": "4卡/节点, 88CU×4 + 32 CPU核"
+    },
+    "Tesla P100": {
+      "boards_per_node": 4,
+      "cores_per_node": 112,
+      "method_latex_board": "node\\_num \\times 4",
+      "method_latex_core": "node\\_num \\times 112",
+      "note": "4卡/节点, 3584/32 warp"
+    },
+    "Tesla V100": {
+      "boards_per_node": 4,
+      "cores_per_node": 160,
+      "method_latex_board": "node\\_num \\times 4",
+      "method_latex_core": "node\\_num \\times 160",
+      "note": "4卡/节点, 5120/32 warp"
+    },
+    "Tesla A100": {
+      "boards_per_node": 4,
+      "cores_per_node": 216,
+      "method_latex_board": "node\\_num \\times 4",
+      "method_latex_core": "node\\_num \\times 216",
+      "note": "4卡/节点, 6912/32 warp, Tensor core不计"
+    },
+    "Tesla As100": {
+      "boards_per_node": 4,
+      "cores_per_node": 216,
+      "method_latex_board": "node\\_num \\times 4",
+      "method_latex_core": "node\\_num \\times 216",
+      "note": "兼容旧名称"
+    }
+  },
+  "granularity_options": {
+    "board": "板卡级：以加速卡/核组为计算单元，并行规模 = 节点数 × boards_per_node",
+    "core": "内部核级：以处理器内部核为计算单元，并行规模 = 节点数 × cores_per_node"
+  },
+  "default_granularity": "board"
+}

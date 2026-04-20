@@ -4,103 +4,100 @@
 指标计算器。
 
 职责：根据平台类型和节点数计算并行度，根据基准参数计算并行效率。
-不依赖文件系统、调度命令或平台配置文件，所有输入均为已解析的 Python 对象。
+不依赖调度命令或平台配置文件，所有输入均为已解析的 Python 对象。
 
-并行度换算规则说明（硬编码于此，来源为各平台硬件规格）：
-    SW26010:       每节点 260 核
-    SW39000:       每节点 390 核
-    飞腾-64:        每节点 64 核
-    Matrix2000:    每节点 256 核
-    Matrix3000:    每节点 1648 核
-    DCU Z100/Z100L: 每节点 256 DCU核 + 32 CPU核
-    BW1000(80CU):  每节点 320 DCU核 + 32 CPU核
-    BW1000(88CU):  每节点 352 DCU核 + 32 CPU核
-    Tesla P100:    每节点 112 核
-    Tesla V100:    每节点 160 核
-    Tesla As100:   每节点 216 核
+并行度换算规则从 hardware_registry.json 配置文件加载，支持动态扩展。
 
-效率计算公式：
-    efficiency = (compared_cores × compared_run_time × 10000)
-                 / (core_num × elapsed_time) × 100
-    其中 10000 为基准规模常数（与 compared_cores 的业务单位关联，
-    后续可通过将其纳入 platform_config.json 消除硬编码）。
+效率计算公式（对标规范）：
+    强可扩展并行效率 = (T_M × M) / (T_N × N) × 100%
+    其中 M = compared_cores（基准核数），T_M = compared_run_time（基准时间）
+         N = core_num（当前核数），T_N = elapsed_time（当前时间）
+
+向后兼容：接口签名与返回格式不变。
 """
 
+import json
+import os
 from typing import Optional
+
 from perfbench.utils.logger import get_logger
 
 logger = get_logger()
 
+# hardware_registry.json 路径（与本模块同级的上层 perfbench/ 目录下）
+_REGISTRY_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "hardware_registry.json"
+)
 
-def calculate_parallelism(platform_name: str, node_num: int) -> Optional[dict]:
+_registry_cache = None
+
+
+def _load_registry() -> dict:
+    """加载并缓存 hardware_registry.json"""
+    global _registry_cache
+    if _registry_cache is not None:
+        return _registry_cache
+    try:
+        with open(_REGISTRY_PATH, "r", encoding="utf-8") as f:
+            _registry_cache = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        logger.error(f"加载 hardware_registry.json 失败: {e}")
+        _registry_cache = {"processors": {}}
+    return _registry_cache
+
+
+def calculate_parallelism(platform_name: str, node_num: int,
+                          granularity: Optional[str] = None) -> Optional[dict]:
     """
     根据平台类型和节点数计算并行度。
+
+    从 hardware_registry.json 查表获取每节点核数/板卡数，支持动态扩展新平台。
 
     Args:
         platform_name: 平台标识字符串，需与 platform_config.json 中的
                        platform_name 字段一致
         node_num:      参与计算的节点数
+        granularity:   测试粒度等级，"board"（板卡级，默认）或 "core"（内部核级）
+                       为 None 时使用 hardware_registry.json 中的 default_granularity
 
     Returns:
         dict: {
-            "core_num": int,   总核心数
+            "core_num": int,   总并行单元数（板卡数或核数）
             "method":   str,   计算方式描述（LaTeX 格式）
+            "granularity": str, 实际使用的粒度
         }
         不支持的平台返回 None。
     """
-    res = {"core_num": None, "method": None}
+    registry = _load_registry()
+    processors = registry.get("processors", {})
+    spec = processors.get(platform_name)
 
-    # 申威系列
-    if platform_name == "SW26010":
-        res["core_num"] = node_num * 260
-        res["method"] = r"node\_num \times 260"
-    elif platform_name == "SW39000":
-        res["core_num"] = node_num * 390
-        res["method"] = r"node\_num \times 390"
-
-    # 飞腾系列
-    elif platform_name == "飞腾-64":
-        res["core_num"] = node_num * 64
-        res["method"] = r"node\_num \times 64"
-
-    # Matrix 系列
-    elif platform_name == "Matrix2000":
-        res["core_num"] = node_num * 256
-        res["method"] = r"node\_num \times 256"
-    elif platform_name == "Matrix3000":
-        res["core_num"] = node_num * 1648
-        res["method"] = r"node\_num \times 1648"
-
-    # DCU 系列
-    elif platform_name in ["DCU Z100", "DCU Z100L"]:
-        res["core_num"] = node_num * (256 + 32)
-        res["method"] = r"node\_num \times (4\times DCU\_nums + CPU\_nums)"
-    elif platform_name == "BW1000(80CU)":
-        res["core_num"] = node_num * (320 + 32)
-        res["method"] = r"node\_num \times (4\times DCU\_nums + CPU\_nums)"
-    elif platform_name == "BW1000(88CU)":
-        res["core_num"] = node_num * (352 + 32)
-        res["method"] = r"node\_num \times (4\times DCU\_nums + CPU\_nums)"
-
-    # Tesla GPU 系列
-    elif platform_name == "Tesla P100":
-        res["core_num"] = node_num * 112
-        res["method"] = r"node\_num \times 112"
-    elif platform_name == "Tesla V100":
-        res["core_num"] = node_num * 160
-        res["method"] = r"node\_num \times 160"
-    elif platform_name == "Tesla As100":
-        res["core_num"] = node_num * 216
-        res["method"] = r"node\_num \times 216"
-
-    else:
+    if spec is None:
         logger.error(
             f"无法计算并行度：不支持的平台类型。"
-            f"platform_name={platform_name!r}, node_num={node_num}"
+            f"platform_name={platform_name!r}, node_num={node_num}。"
+            f"请在 hardware_registry.json 中添加该平台配置。"
         )
         return None
 
-    return res
+    if granularity is None:
+        granularity = registry.get("default_granularity", "board")
+
+    if granularity == "board":
+        units_per_node = spec.get("boards_per_node", 1)
+        method_latex = spec.get("method_latex_board",
+                                f"node\\_num \\times {units_per_node}")
+    else:
+        units_per_node = spec["cores_per_node"]
+        method_latex = spec.get("method_latex_core",
+                                f"node\\_num \\times {units_per_node}")
+
+    return {
+        "core_num": node_num * units_per_node,
+        "method": method_latex,
+        "granularity": granularity,
+    }
 
 
 def calculate_efficiency(platform_config: dict, parallelism_info: dict,
@@ -108,9 +105,14 @@ def calculate_efficiency(platform_config: dict, parallelism_info: dict,
     """
     计算并行效率（百分比）。
 
-    公式：
-        efficiency = (compared_cores × compared_run_time × 10000)
-                     / (core_num × elapsed_time) × 100
+    对标规范公式：
+        efficiency = (T_M × M) / (T_N × N) × 100%
+
+    其中：
+        M  = compared_cores（基准规模核数）
+        T_M = compared_run_time（基准规模运行时间，秒）
+        N  = core_num（当前规模核数）
+        T_N = elapsed_time（当前规模运行时间，秒）
 
     Args:
         platform_config:  平台配置字典，需包含 compared_cores / compared_run_time
@@ -133,12 +135,11 @@ def calculate_efficiency(platform_config: dict, parallelism_info: dict,
         compared_run_time = platform_config.get("compared_run_time", 60)
         core_num = parallelism_info["core_num"]
 
-        # 效率 = (基准配置性能) / (当前配置性能) × 100
-        # 10000 为基准规模常数，与 compared_cores 的业务单位关联
+        # 规范公式: E = (T_M × M) / (T_N × N) × 100%
         efficiency = (
-            float(compared_cores * compared_run_time * 10000)
+            float(compared_cores * compared_run_time)
             / float(core_num * elapsed_time)
-            * 100
+            * 100.0
         )
         return efficiency
 
