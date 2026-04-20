@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH -J overhead_bare
-#SBATCH -N 10
+#SBATCH -N 195
 #SBATCH --ntasks-per-node=4
 #SBATCH --cpus-per-task=7
 #SBATCH --exclusive

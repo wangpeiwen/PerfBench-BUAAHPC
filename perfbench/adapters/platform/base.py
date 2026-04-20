@@ -88,3 +88,15 @@ class PlatformAdapter(ABC):
         Returns:
             str: 命令名，如 "sacct" 或 "bjobs"
         """
+
+    def capture_final_logs(self, jobid: str, output_dir: str) -> None:
+        """
+        可选：在作业结束后抓取最终调度日志快照。
+
+        默认不做任何操作；需要该能力的平台适配器可覆盖此方法。
+
+        Args:
+            jobid:      作业 ID
+            output_dir: 本次作业输出目录
+        """
+        return None

@@ -48,6 +48,7 @@ for i in $(seq 1 $REPEAT); do
             "$WORKLOAD" 2>&1 | grep -oP '\d+$')
     T_END=$(date +%s.%N)
 
+    # 调试保留：timing.txt 记录外层 end-to-end 时间，不参与开销计算。
     echo "jobid=$JOBID start=$T_START end=$T_END" > "$OUT_DIR/timing.txt"
     sacct -j "$JOBID" --format=JobID,JobName%20,State,Elapsed,CPUTimeRAW,MaxRSS,AveRSS,AllocCPUS -P \
         > "$OUT_DIR/sacct.log" 2>&1
@@ -64,9 +65,10 @@ for i in $(seq 1 $REPEAT); do
     OUT_DIR="$BASE_DIR/pb_nodcu_$i"
 
     T_START=$(date +%s.%N)
-    python3 "$PERFBENCH" -s "$WORKLOAD" -t 10 -o "$OUT_DIR" --accelerator none
+    python3 "$PERFBENCH" -s "$WORKLOAD" -t 10 -o "$OUT_DIR" --accelerator none --overhead
     T_END=$(date +%s.%N)
 
+    # 调试保留：timing.txt 记录外层 end-to-end 时间，不参与开销计算。
     echo "start=$T_START end=$T_END" > "$OUT_DIR/timing.txt"
     echo "  -> done"
 done
@@ -81,9 +83,10 @@ for i in $(seq 1 $REPEAT); do
     OUT_DIR="$BASE_DIR/pb_dcu10_$i"
 
     T_START=$(date +%s.%N)
-    python3 "$PERFBENCH" -s "$WORKLOAD" -t 10 -o "$OUT_DIR" --accelerator dcu --accelerator-interval 10
+    python3 "$PERFBENCH" -s "$WORKLOAD" -t 10 -o "$OUT_DIR" --accelerator dcu --accelerator-interval 10 --overhead
     T_END=$(date +%s.%N)
 
+    # 调试保留：timing.txt 记录外层 end-to-end 时间，不参与开销计算。
     echo "start=$T_START end=$T_END" > "$OUT_DIR/timing.txt"
     echo "  -> done"
 done
@@ -98,9 +101,10 @@ for i in $(seq 1 $REPEAT); do
     OUT_DIR="$BASE_DIR/pb_dcu2_$i"
 
     T_START=$(date +%s.%N)
-    python3 "$PERFBENCH" -s "$WORKLOAD" -t 10 -o "$OUT_DIR" --accelerator dcu --accelerator-interval 2
+    python3 "$PERFBENCH" -s "$WORKLOAD" -t 10 -o "$OUT_DIR" --accelerator dcu --accelerator-interval 2 --overhead
     T_END=$(date +%s.%N)
 
+    # 调试保留：timing.txt 记录外层 end-to-end 时间，不参与开销计算。
     echo "start=$T_START end=$T_END" > "$OUT_DIR/timing.txt"
     echo "  -> done"
 done

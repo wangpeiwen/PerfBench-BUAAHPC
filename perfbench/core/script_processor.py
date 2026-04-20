@@ -26,7 +26,8 @@ logger = get_logger()
 # ---------------------------------------------------------------------------
 
 def run_evaluation(script_path: str, interval: int, output_dir: str,
-                   platform_adapter: PlatformAdapter, progress):
+                   platform_adapter: PlatformAdapter, progress,
+                   capture_final_logs: bool = False):
     """
     处理作业脚本的统一流程，委托平台细节给适配器。
 
@@ -77,6 +78,8 @@ def run_evaluation(script_path: str, interval: int, output_dir: str,
 
     # 6. 等待作业完成
     platform_adapter.wait_for_job(jobid)
+    if capture_final_logs:
+        platform_adapter.capture_final_logs(jobid, job_dir)
     progress.next("监控完成")
 
     return job_dir, script_info

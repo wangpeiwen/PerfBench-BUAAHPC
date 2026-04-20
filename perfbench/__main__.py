@@ -57,6 +57,8 @@ def parse_arguments():
                         help='启用 DCU 监控（等价于 --accelerator dcu）')
     parser.add_argument('--dcu-interval', type=int, default=None,
                         help='DCU 采样间隔（秒），等价于 --accelerator-interval')
+    parser.add_argument('--overhead', action='store_true',
+                        help='开销测试模式：作业结束后额外抓取最终调度日志快照（SLURM 生成 final_sacct.log）')
     parser.add_argument('--version', action='version', version='%(prog)s 1.0.0')
     return parser
 
@@ -111,6 +113,7 @@ def main():
                 script_path, interval, output_dir, is_sunway, progress, logger,
                 accelerator_override=args.accelerator or ('dcu' if args.dcu else None),
                 accelerator_interval_override=args.accelerator_interval or args.dcu_interval,
+                overhead_mode=args.overhead,
             )
             _generate_report(logger, job_dir, script_info, interval, is_sunway)
             progress.finish()                      # 7. 报告生成完成
@@ -160,7 +163,8 @@ def main():
 def _run_evaluation(script_path: str, interval: int, output_dir: str,
                     is_sunway: bool, progress, logger,
                     accelerator_override: Optional[str] = None,
-                    accelerator_interval_override: Optional[int] = None):
+                    accelerator_interval_override: Optional[int] = None,
+                    overhead_mode: bool = False):
     """
     通过平台适配器执行完整评测链路（提交 → 监控 → 等待）。
 
@@ -180,7 +184,10 @@ def _run_evaluation(script_path: str, interval: int, output_dir: str,
     accel_monitor = get_accelerator_monitor(accel_config)
     adapter = get_platform_adapter(is_sunway,
                                    accelerator_monitor=accel_monitor)
-    job_dir, script_info = run_evaluation(script_path, interval, output_dir, adapter, progress)
+    job_dir, script_info = run_evaluation(
+        script_path, interval, output_dir, adapter, progress,
+        capture_final_logs=overhead_mode,
+    )
 
     logger.info(f"PerfBench 流程已完成，输出目录: {job_dir}")
     progress.next("报告生成中")  # 6. 报告生成中

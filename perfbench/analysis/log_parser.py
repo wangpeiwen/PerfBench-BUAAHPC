@@ -37,6 +37,35 @@ supported_CMD = [
 ]
 
 
+def _parse_elapsed_string(elapsed_str: str) -> Optional[int]:
+    """将 SLURM 的 HH:MM:SS 或 D-HH:MM:SS 转为秒。"""
+    if not elapsed_str:
+        return None
+
+    elapsed_str = str(elapsed_str).strip()
+    if '-' in elapsed_str:
+        days, rest = elapsed_str.split('-', 1)
+        parts = rest.split(':')
+        if len(parts) != 3:
+            return None
+        hours, minutes, seconds = parts
+        return (
+            int(days) * 86400
+            + int(hours) * 3600
+            + int(minutes) * 60
+            + int(seconds)
+        )
+
+    parts = elapsed_str.split(':')
+    if len(parts) == 3:
+        hours, minutes, seconds = parts
+        return int(hours) * 3600 + int(minutes) * 60 + int(seconds)
+    if len(parts) == 2:
+        minutes, seconds = parts
+        return int(minutes) * 60 + int(seconds)
+    return None
+
+
 class Result:
     """
     作业结果解析中心。
@@ -131,8 +160,9 @@ class Result:
             logger.warning("sacct 数据为空")
             return None
         try:
-            dt = datetime.strptime(self.data[-1]["Elapsed"], "%H:%M:%S")
-            elapsed_seconds = dt.hour * 3600 + dt.minute * 60 + dt.second
+            elapsed_seconds = _parse_elapsed_string(self.data[-1]["Elapsed"])
+            if elapsed_seconds is None:
+                raise ValueError(f"无法解析 Elapsed: {self.data[-1].get('Elapsed')}")
             logger.info(f"SLURM 运行时间（秒）: {elapsed_seconds}")
             return elapsed_seconds
         except (KeyError, ValueError) as e:
@@ -161,13 +191,17 @@ class Result:
 
     def parse_sacct(self):
         """
-        解析 out_dir 下所有 sacct_*.log 文件。
+        解析 out_dir 下所有 sacct_*.log 文件，并在存在时追加 final_sacct.log。
 
         日志格式（管道分隔）：
             JobID|JobName|State|Elapsed|MaxRSS|AllocCPUs
         """
         pattern = os.path.join(self.out_dir, "sacct_*.log")
-        sacct_files = glob.glob(pattern)
+        sacct_files = sorted(glob.glob(pattern))
+        final_sacct = os.path.join(self.out_dir, "final_sacct.log")
+        if os.path.exists(final_sacct):
+            sacct_files.append(final_sacct)
+
         if not sacct_files:
             raise FileNotFoundError(
                 f"未找到 sacct 日志文件，模式: {pattern}"
@@ -183,7 +217,10 @@ class Result:
             headers = [h.strip() for h in lines[0].split('|')]
             data = lines[1].split('|')
             filename = os.path.basename(file_path)
-            time_stamp = filename[6:-4]  # 去掉前缀 "sacct_" 和后缀 ".log"
+            if filename == "final_sacct.log":
+                time_stamp = "final"
+            else:
+                time_stamp = filename[6:-4]  # 去掉前缀 "sacct_" 和后缀 ".log"
 
             row_dict = {
                 "JobID": None,

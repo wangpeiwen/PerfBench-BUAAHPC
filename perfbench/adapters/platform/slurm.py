@@ -130,3 +130,29 @@ class SlurmAdapter(PlatformAdapter):
     def get_log_cmd_name(self) -> str:
         """返回 SLURM 平台日志解析使用的命令名称。"""
         return "sacct"
+
+    def capture_final_logs(self, jobid: str, output_dir: str) -> None:
+        """
+        在作业结束后额外抓取一次最终 sacct 快照。
+
+        主要用于短作业开销测试，避免仅依赖周期轮询日志而低估最终 Elapsed。
+        """
+        final_sacct_path = os.path.join(output_dir, 'final_sacct.log')
+        try:
+            result = subprocess.run(
+                ['sacct', '-j', jobid, '--format=JobID,JobName%20,State,Elapsed,MaxRSS,AllocCPUs', '-P'],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+            )
+            if result.returncode != 0:
+                logger.warning(
+                    f"[SLURM] 抓取最终 sacct 快照失败 (JobID={jobid}): {result.stderr.strip()}"
+                )
+                return
+
+            with open(final_sacct_path, 'w', encoding='utf-8') as handle:
+                handle.write(result.stdout)
+            logger.info(f"[SLURM] 已写入最终 sacct 快照: {final_sacct_path}")
+        except FileNotFoundError:
+            logger.warning("[SLURM] sacct 命令未找到，跳过最终快照抓取")
+        except Exception as e:
+            logger.warning(f"[SLURM] 抓取最终 sacct 快照时出错: {e}")
