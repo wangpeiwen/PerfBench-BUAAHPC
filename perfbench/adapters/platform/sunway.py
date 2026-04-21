@@ -7,12 +7,14 @@
 收拢到此单一适配器，消除主流程中的 if is_sunway 分支。
 """
 
+import os
 import re
 import subprocess
 import time
 from perfbench.adapters.platform.base import PlatformAdapter
 from perfbench.utils.logger import get_logger
 from perfbench.utils.monitoring import start_bjob_monitoring_on_login
+from perfbench.utils.script_parser import parse_sunway_script
 
 logger = get_logger()
 
@@ -25,6 +27,14 @@ class SunwayAdapter(PlatformAdapter):
     SLURM 解析器（parse_slurm_script）被复用做基础字段提取，
     因申威脚本格式与 SLURM 有相似结构，后续可按需替换为专用解析器。
     """
+
+    # ------------------------------------------------------------------
+    # 脚本解析
+    # ------------------------------------------------------------------
+
+    def parse_script(self, script_path: str) -> dict:
+        """使用申威专用解析器，从 bsub 命令行提取参数。"""
+        return parse_sunway_script(script_path)
 
     # ------------------------------------------------------------------
     # 脚本准备（提交前逻辑）
@@ -53,29 +63,38 @@ class SunwayAdapter(PlatformAdapter):
 
     def submit_job(self, script_path: str) -> str:
         """
-        通过 bsub 提交申威作业，返回 JobID。
+        直接执行申威 wrapper 脚本（脚本内部调用 bsub），从 stdout 提取 JobID。
 
-        Raises:
-            RuntimeError: bsub 返回非零退出码或命令不存在
+        申威脚本是 csh/bash wrapper，内部自行调用 bsub 并输出 JobID。
+        典型输出包含 "Job <12345>" 格式。
         """
         try:
+            script_dir = os.path.dirname(os.path.abspath(script_path))
             result = subprocess.run(
-                ['bsub', script_path],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+                [os.path.abspath(script_path)],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                cwd=script_dir,
             )
+            combined = result.stdout + result.stderr
             if result.returncode != 0:
-                raise RuntimeError(f"bsub 提交失败: {result.stderr.strip()}")
-            # bsub 输出格式因系统而异，取第一个数字串作为 JobID
-            match = re.search(r'(\d+)', result.stdout)
+                raise RuntimeError(f"申威脚本执行失败: {combined.strip()}")
+
+            match = re.search(r'Job\s*<(\d+)>', combined)
+            if not match:
+                match = re.search(r'(\d+)', combined)
             if not match:
                 raise RuntimeError(
-                    f"无法从 bsub 输出中提取 JobID: {result.stdout.strip()}"
+                    f"无法从脚本输出中提取 JobID: {combined.strip()}"
                 )
             jobid = match.group(1)
             logger.info(f"[Sunway] 申威作业已提交, JobID={jobid}")
             return jobid
         except FileNotFoundError:
-            raise RuntimeError("bsub 命令未找到，请确保在申威集群登录节点上运行")
+            raise RuntimeError(f"脚本不存在或无执行权限: {script_path}")
+        except PermissionError:
+            raise RuntimeError(
+                f"脚本无执行权限，请执行: chmod +x {script_path}"
+            )
 
     # ------------------------------------------------------------------
     # 登录节点监控
@@ -107,13 +126,18 @@ class SunwayAdapter(PlatformAdapter):
         while True:
             try:
                 result = subprocess.run(
-                    ['bjobs', '-noheader', '-o', 'stat', jobid],
+                    ['bjobs', jobid],
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
                 )
-                state = result.stdout.strip()
-                if any(s in state for s in ['DONE', 'EXIT', 'CANCELED', 'TERM']):
-                    logger.info(f"[Sunway] 申威作业 {jobid} 已结束，状态: {state}")
-                    return state
+                lines = result.stdout.strip().splitlines()
+                for line in lines:
+                    parts = line.split()
+                    if parts and parts[0] == jobid:
+                        state = parts[1]
+                        if state in ('DONE', 'EXIT', 'CANCELED', 'TERM'):
+                            logger.info(f"[Sunway] 申威作业 {jobid} 已结束，状态: {state}")
+                            return state
+                        break
             except Exception as e:
                 logger.warning(f"[Sunway] 查询申威作业状态时出错: {e}")
             time.sleep(poll_interval)

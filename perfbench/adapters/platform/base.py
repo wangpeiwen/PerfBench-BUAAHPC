@@ -8,6 +8,7 @@
 """
 
 from abc import ABC, abstractmethod
+from perfbench.utils.script_parser import parse_slurm_script
 
 
 class PlatformAdapter(ABC):
@@ -88,6 +89,14 @@ class PlatformAdapter(ABC):
         Returns:
             str: 命令名，如 "sacct" 或 "bjobs"
         """
+
+    def parse_script(self, script_path: str) -> dict:
+        """
+        解析作业脚本，提取 job_name / nodes 等信息。
+
+        默认使用 SLURM 解析器，申威等平台可覆盖此方法。
+        """
+        return parse_slurm_script(script_path)
 
     def capture_final_logs(self, jobid: str, output_dir: str) -> None:
         """

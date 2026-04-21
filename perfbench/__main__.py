@@ -31,8 +31,6 @@ from perfbench.analysis import (
     calculate_efficiency,
     get_platform_config,
 )
-from perfbench.report.certificate_generator import generate_certificate
-from perfbench.interactive import interactive_main
 
 
 # ---------------------------------------------------------------------------
@@ -120,6 +118,7 @@ def main():
             return
 
         # ---- 交互评测模式 ----
+        from perfbench.interactive import interactive_main
         config = interactive_main()
         if config is None:
             return
@@ -288,7 +287,11 @@ def _generate_report(logger, job_dir: str, script_info: dict,
             logger.warning(f"加速卡日志解析失败: {e}")
 
     logger.info(f"报告信息: {report_info}")
-    generate_certificate(report_info, job_dir)
+    try:
+        from perfbench.report.certificate_generator import generate_certificate
+        generate_certificate(report_info, job_dir)
+    except ImportError:
+        logger.warning("报告生成依赖（reportlab/pypdf）未安装，跳过 PDF 证书生成")
 
 
 # ---------------------------------------------------------------------------
@@ -347,8 +350,6 @@ from perfbench.analysis import (
     calculate_efficiency,
     get_platform_config,
 )
-from perfbench.report.certificate_generator import generate_certificate
-from perfbench.interactive import interactive_main
 from perfbench.orchestrator.config_loader import load_test_config, validate_test_config
 
 
@@ -456,6 +457,7 @@ def main():
             return
 
         # ---- 交互评测模式 ----
+        from perfbench.interactive import interactive_main
         config = interactive_main()
         if config is None:
             return
@@ -732,7 +734,11 @@ def _generate_report(logger, job_dir: str, script_info: dict,
             logger.warning(f"加速卡日志解析失败: {e}")
 
     logger.info(f"报告信息: {report_info}")
-    generate_certificate(report_info, job_dir)
+    try:
+        from perfbench.report.certificate_generator import generate_certificate
+        generate_certificate(report_info, job_dir)
+    except ImportError:
+        logger.warning("报告生成依赖（reportlab/pypdf）未安装，跳过 PDF 证书生成")
 
 
 # ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@ PerfBench是一款轻量级的性能基准测试工具，专为SLURM和申威等
 
 ## 特性
 
-- 🔄 **自动化脚本处理**：解析和修改SLURM/申威作业脚本，自动注入性能监控代码
+- 🔄 **自动化脚本处理**：解析SLURM（`#SBATCH`）和申威（`bsub` 命令行）作业脚本，自动注入性能监控代码
 - 📊 **全面的性能监控**：收集CPU、内存、DCU/GPU等资源使用数据
 - 🏗️ **多架构支持**：支持x86_64、aarch64、海光DCU等多种处理器/加速器架构
 - 🔍 **性能分析**：计算并行度、运行效率等关键性能指标
@@ -77,9 +77,9 @@ chmod +x perfbench.py
 ./perfbench.py -s /path/to/script.slurm -t 60 -o /path/to/output
 ```
 
-对于申威平台，添加 `-sw` 参数：
+对于申威平台，添加 `-sw` 参数（脚本为 csh/bash wrapper，内部自行调用 `bsub`）：
 ```bash
-./perfbench.py -s /path/to/script.sh -t 60 -o /path/to/output -sw
+./perfbench.py -s /path/to/submit_script.csh -t 60 -o /path/to/output -sw
 ```
 
 #### 5. 启用加速卡监控
@@ -339,8 +339,8 @@ mpirun ./my_app
 
 ### 问题：脚本解析失败
 **解决方案**：
-- 检查提供的脚本是否为标准SLURM脚本格式
-- 确保脚本以 `#!/bin/bash` 开头
+- SLURM 脚本：检查是否包含标准 `#SBATCH` 指令（`--job-name`, `--nodes` 等）
+- 申威脚本：确保脚本中有未注释的 `bsub` 命令行，工具从中提取 `-J`（作业名）、`-n`（进程数）等参数
 - 查看详细日志：`perfbench.log`
 
 ### 问题：监控数据不完整
@@ -415,6 +415,7 @@ perfbench/
 │   └── utils/                # 工具函数
 │       ├── logger.py         # 日志管理
 │       ├── monitoring.py     # 脚本准备器 + 监控执行器
+│       ├── script_parser.py   # 脚本解析器（SLURM #SBATCH / 申威 bsub 命令行）
 │       └── system_checker.py # 系统环境检查
 ```
 

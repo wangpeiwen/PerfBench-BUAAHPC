@@ -11,7 +11,7 @@ log_parser.py 的 parse_hysmi() / get_dcu_summary() 迁移而来，
 import os
 import re
 import glob
-from typing import Optional
+from typing import Dict, List, Optional
 from perfbench.adapters.accelerator.base import AcceleratorMonitor
 from perfbench.utils.logger import get_logger
 
@@ -75,7 +75,7 @@ echo $_PERFBENCH_DCU_PID > "{output_dir}/dcu_sampler.pid"
     # 日志解析
     # ------------------------------------------------------------------
 
-    def parse_logs(self, out_dir: str) -> list[dict]:
+    def parse_logs(self, out_dir: str) -> List[Dict]:
         """
         解析 out_dir/dcu_logs/ 下所有 dcu_hysmi_*.log 文件。
 
@@ -143,7 +143,7 @@ echo $_PERFBENCH_DCU_PID > "{output_dir}/dcu_sampler.pid"
     # 汇总
     # ------------------------------------------------------------------
 
-    def get_summary(self, parsed_data: list[dict]) -> Optional[dict]:
+    def get_summary(self, parsed_data: List[Dict]) -> Optional[Dict]:
         """
         从 hy-smi 解析数据中提取 DCU 利用率摘要。
 

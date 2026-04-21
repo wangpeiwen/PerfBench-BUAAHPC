@@ -232,9 +232,9 @@ while true; do
         >> "$OUTDIR/cnload_bitmap_filtered_$ts.log" 2>&1 || true
 
     # 检查作业是否已进入终态
-    state=$(bjobs -noheader -o stat $JOBID)
-    if [[ "$state" =~ "DONE" || "$state" =~ "EXIT" || \\
-          "$state" =~ "CANCELED" || "$state" =~ "TERM" ]]; then
+    state=$(bjobs $JOBID 2>/dev/null | awk '!/^(JOBID|---)/ && NF>1 {{print $2; exit}}')
+    if [[ "$state" == "DONE" || "$state" == "EXIT" || \\
+          "$state" == "CANCELED" || "$state" == "TERM" ]]; then
         echo "Job $JOBID finished with state $state at $ts" \\
             > "$OUTDIR/job_end_$ts.log"
         break

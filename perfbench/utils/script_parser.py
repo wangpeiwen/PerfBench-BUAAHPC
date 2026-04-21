@@ -42,6 +42,82 @@ def parse_slurm_script(script_path):
         
     return info
 
+def parse_sunway_script(script_path):
+    """
+    解析申威（Sunway）平台 csh/bash wrapper 脚本，从 bsub 命令行提取关键信息。
+
+    申威脚本典型格式：
+        setenv SUBSTAT "`bsub -p -b -o log -q q_share -J job_name -n 4374 -cgsp 64 ...`"
+    """
+    info = {
+        'job_name': None,
+        'nodes': 1,
+        'tasks_per_node': 1,
+        'cpus_per_task': 1,
+        'num_processes': None,
+        'queue': None,
+        'time_limit': None,
+        'partition': None,
+        'output': None,
+        'error': None,
+        'commands': []
+    }
+
+    try:
+        with open(script_path, 'r') as f:
+            lines = f.readlines()
+
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith('#') or not stripped:
+                continue
+
+            if 'bsub ' in stripped:
+                _parse_bsub_line(stripped, info)
+                break
+
+    except Exception as e:
+        logger.error(f"解析申威脚本失败: {str(e)}")
+        return None
+
+    return info
+
+
+def _parse_bsub_line(line, info):
+    """
+    从 bsub 命令行中提取参数。
+
+    支持格式：
+        bsub ... -J job_name -n 4374 -q q_share -cgsp 64 ...
+    """
+    bsub_match = re.search(r'bsub\s+(.+?)(?:[`"\']|$)', line)
+    if not bsub_match:
+        return
+    bsub_args = bsub_match.group(1)
+
+    patterns = {
+        'job_name': r'-J\s+(\S+)',
+        'num_processes': r'-n\s+(\d+)',
+        'queue': r'-q\s+(\S+)',
+        'output': r'-o\s+(\S+)',
+    }
+
+    for key, pattern in patterns.items():
+        match = re.search(pattern, bsub_args)
+        if match:
+            value = match.group(1)
+            if key == 'num_processes':
+                value = int(value)
+            info[key] = value
+
+    if info.get('queue'):
+        info['partition'] = info['queue']
+
+    executable_match = re.search(r'(?:^|[\s])(\./\S+|/\S+)\s*', bsub_args)
+    if executable_match:
+        info['commands'].append(executable_match.group(1))
+
+
 def parse_sbatch_directive(line, info):
     """
     解析SBATCH指令

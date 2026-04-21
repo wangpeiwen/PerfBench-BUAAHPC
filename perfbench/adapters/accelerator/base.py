@@ -8,7 +8,7 @@
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Dict, List, Optional
 
 
 class AcceleratorMonitor(ABC):
@@ -38,7 +38,7 @@ class AcceleratorMonitor(ABC):
         """
 
     @abstractmethod
-    def parse_logs(self, out_dir: str) -> list[dict]:
+    def parse_logs(self, out_dir: str) -> List[Dict]:
         """
         解析采集日志，返回结构化数据列表。
 
@@ -50,7 +50,7 @@ class AcceleratorMonitor(ABC):
         """
 
     @abstractmethod
-    def get_summary(self, parsed_data: list[dict]) -> Optional[dict]:
+    def get_summary(self, parsed_data: List[Dict]) -> Optional[Dict]:
         """
         从解析数据中提取汇总指标。
 
