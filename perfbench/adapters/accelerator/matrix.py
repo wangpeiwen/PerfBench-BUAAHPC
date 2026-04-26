@@ -55,6 +55,7 @@ _perfbench_matrix_sampler() {{
   echo "===== node: $_NODE =====" > "$_LOGFILE"
   echo "start_time: $(date "+%F %T")" >> "$_LOGFILE"
   _SAMPLE=0
+  trap "echo end_time: \$(date \"+%F %T\") >> \"$_LOGFILE\"; exit 0" TERM INT
   while true; do
     _SAMPLE=$((_SAMPLE + 1))
     echo "" >> "$_LOGFILE"
@@ -81,6 +82,7 @@ else
   _perfbench_matrix_sampler &
   echo $! > "{output_dir}/matrix_sampler.pid"
 fi
+trap 'kill $_PERFBENCH_MATRIX_PIDS 2>/dev/null; wait $_PERFBENCH_MATRIX_PIDS 2>/dev/null' EXIT INT TERM
 # ─────────────── PerfBench Matrix 采样器 结束 ───────────────
 """
 

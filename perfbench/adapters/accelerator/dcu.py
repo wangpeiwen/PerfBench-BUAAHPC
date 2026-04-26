@@ -55,6 +55,7 @@ _LOGFILE="'"$_PERFBENCH_DCU_DIR"'""/dcu_hysmi_$_NODE.log"
 echo "===== node: $_NODE =====" > "$_LOGFILE"
 echo "start_time: $(date "+%F %T")" >> "$_LOGFILE"
 _SAMPLE=0
+trap "echo end_time: \$(date \"+%F %T\") >> \"$_LOGFILE\"; exit 0" TERM INT
 while true; do
   _SAMPLE=$((_SAMPLE + 1))
   echo "" >> "$_LOGFILE"
@@ -67,6 +68,7 @@ done
 ' &
 _PERFBENCH_DCU_PID=$!
 echo $_PERFBENCH_DCU_PID > "{output_dir}/dcu_sampler.pid"
+trap 'kill $_PERFBENCH_DCU_PID 2>/dev/null; wait $_PERFBENCH_DCU_PID 2>/dev/null' EXIT INT TERM
 # ─────────────── PerfBench DCU 采样器 结束 ───────────────
 """
 

@@ -240,8 +240,8 @@ PerfBench 通过独立的加速卡监控层支持不同类型的加速器指标�
 
 - 在作业脚本副本中注入 DCU 采样块（原始脚本不修改）
 - 通过 `srun --overlap` 在所有计算节点上启动后台 `hy-smi` 采样循环
-- 每个节点写入独立日志文件到 `{output_dir}/dcu_logs/dcu_hysmi_{hostname}.log`
-- 作业结束后 SLURM cgroup 自动清理采样进程
+- 每个节点写入独立日志文件到共享文件系统的 `{output_dir}/dcu_logs/dcu_hysmi_{hostname}.log`（无跨节点通信）
+- 主作业脚本通过 `trap ... EXIT INT TERM` 在退出时主动 kill 采样进程并 wait，确保最后一条记录写入完整后再退出
 - PerfBench 解析所有节点日志，汇总 DCU 利用率、显存、功耗、温度等指标
 
 ### 采集指标
