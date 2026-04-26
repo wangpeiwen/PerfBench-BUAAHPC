@@ -16,142 +16,6 @@ from perfbench.utils.logger import get_logger
 logger = get_logger()
 
 
-def parse_lsf_script(script_path: str) -> dict:
-    info = {
-        'job_name': None,
-        'nodes': 1,
-        'tasks_per_node': 1,
-        'cpus_per_task': 1,
-        'num_processes': None,
-        'queue': None,
-        'time_limit': None,
-        'partition': None,
-        'output': None,
-        'error': None,
-        'commands': [],
-    }
-
-    try:
-        with open(script_path, 'r', encoding='utf-8') as handle:
-            lines = handle.readlines()
-
-        for line in lines:
-            stripped = line.strip()
-            if stripped.startswith('#') or not stripped:
-                continue
-
-            if 'bsub ' in stripped:
-                _parse_bsub_line(stripped, info)
-                break
-    except Exception as exc:
-        logger.error(f"解析 LSF wrapper 脚本失败: {exc}")
-        return None
-
-    return info
-
-
-def _parse_bsub_line(line: str, info: dict) -> None:
-    bsub_match = re.search(r'bsub\s+(.+?)(?:[`"\']|$)', line)
-    if not bsub_match:
-        return
-    bsub_args = bsub_match.group(1)
-
-    patterns = {
-        'job_name': r'-J\s+(\S+)',
-        'nodes': r'-N\s+(\d+)',
-        'num_processes': r'-n\s+(\d+)',
-        'tasks_per_node': r'-np\s+(\d+)',
-        'queue': r'-q\s+(\S+)',
-        'time_limit': r'-timelimit\s+(\S+)',
-        'output': r'-o\s+(\S+)',
-        'error': r'-e\s+(\S+)',
-    }
-
-    for key, pattern in patterns.items():
-        match = re.search(pattern, bsub_args)
-        if match:
-            value = match.group(1)
-            if key in ('nodes', 'num_processes', 'tasks_per_node'):
-                value = int(value)
-            info[key] = value
-
-    if info.get('queue'):
-        info['partition'] = info['queue']
-
-    executable_match = re.search(r'(?:^|[\s])(\./\S+|/\S+)\s*', bsub_args)
-    if executable_match:
-        info['commands'].append(executable_match.group(1))
-
-
-def _start_login_monitor(jobid: str, interval: int, output_dir: str) -> int:
-    os.makedirs(output_dir, exist_ok=True)
-    monitor_sh = os.path.join(output_dir, 'monitor_login_lsf.sh')
-    monitor_pid_file = os.path.join(output_dir, 'monitor_login_lsf.pid')
-
-    script = f"""#!/bin/bash
-# PerfBench login-node monitoring for LSF job {jobid}
-JOBID={jobid}
-INTERVAL={interval}
-OUTDIR={output_dir}
-
-mkdir -p "$OUTDIR"
-
-while true; do
-    ts=$(date +%Y%m%d_%H%M%S)
-
-    {{
-        echo "### bjobs -w $JOBID"
-        bjobs -w "$JOBID"
-        echo
-        echo "### bjobs -l $JOBID"
-        bjobs -l "$JOBID"
-    }} > "$OUTDIR/bjobs_$ts.log" 2>&1 || true
-
-    state=$(awk '!/^(###|JOBID|---)/ && NF>1 && $1 ~ /^[0-9]+$/ {{print $2; exit}}' \\
-        "$OUTDIR/bjobs_$ts.log")
-
-    if [[ "$state" == "RUN" ]]; then
-        cnload -j "$JOBID" > "$OUTDIR/cnload_$ts.log" 2>&1 || true
-        cnload -b -j "$JOBID" > "$OUTDIR/cnload_bitmap_$ts.log" 2>&1 || true
-        grep 'SPE[0-9]' "$OUTDIR/cnload_bitmap_$ts.log" \\
-            >> "$OUTDIR/cnload_bitmap_filtered_$ts.log" 2>&1 || true
-    fi
-
-    if [[ "$state" == "DONE" || "$state" == "EXIT" || \\
-          "$state" == "CANCELED" || "$state" == "TERM" ]]; then
-        echo "Job $JOBID finished with state $state at $ts" \\
-            > "$OUTDIR/job_end_$ts.log"
-        break
-    fi
-
-    sleep "$INTERVAL"
-done
-"""
-
-    with open(monitor_sh, 'w') as handle:
-        handle.write(script)
-    os.chmod(monitor_sh, 0o755)
-
-    process = subprocess.Popen(
-        [monitor_sh],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    with open(monitor_pid_file, 'w') as handle:
-        handle.write(str(process.pid))
-
-    logger.info(f"[LSF] login-node monitoring started (pid={process.pid}): {output_dir}")
-    return process.pid
-
-
-def parse_perfbench_timestamp(time_stamp: str) -> Optional[datetime]:
-    """将日志文件名中的 YYYYmmdd_HHMMSS 时间戳转为 datetime。"""
-    try:
-        return datetime.strptime(time_stamp, "%Y%m%d_%H%M%S")
-    except (TypeError, ValueError):
-        return None
-
-
 class LsfLogParser(PlatformLogParser):
     """解析 LSF bjobs 日志。"""
 
@@ -237,7 +101,7 @@ class LsfLogParser(PlatformLogParser):
         terminal_states = {"DONE", "EXIT", "CANCELED", "CANCELLED", "TERM"}
 
         for row in sorted(rows, key=lambda item: item.get("time_stamp") or ""):
-            ts = parse_perfbench_timestamp(row.get("time_stamp"))
+            ts = self._parse_perfbench_timestamp(row.get("time_stamp"))
             if ts is None:
                 continue
             if first_seen is None:
@@ -253,6 +117,14 @@ class LsfLogParser(PlatformLogParser):
         if start is None or end_time is None or end_time < start:
             return None
         return int((end_time - start).total_seconds())
+
+    @staticmethod
+    def _parse_perfbench_timestamp(time_stamp: str) -> Optional[datetime]:
+        """将日志文件名中的 YYYYmmdd_HHMMSS 时间戳转为 datetime。"""
+        try:
+            return datetime.strptime(time_stamp, "%Y%m%d_%H%M%S")
+        except (TypeError, ValueError):
+            return None
 
     def _parse_bjobs_table(self, lines: List[str], row: Dict) -> None:
         """
@@ -322,7 +194,74 @@ class LsfAdapter(PlatformAdapter):
 
     def parse_script(self, script_path: str) -> dict:
         """从 wrapper 内的 bsub 命令行提取参数。"""
-        return parse_lsf_script(script_path)
+        info = self._new_script_info()
+
+        try:
+            with open(script_path, 'r', encoding='utf-8') as handle:
+                lines = handle.readlines()
+
+            for line in lines:
+                stripped = line.strip()
+                if stripped.startswith('#') or not stripped:
+                    continue
+
+                if 'bsub ' in stripped:
+                    self._parse_bsub_line(stripped, info)
+                    break
+        except Exception as exc:
+            logger.error(f"解析 LSF wrapper 脚本失败: {exc}")
+            return None
+
+        return info
+
+    @staticmethod
+    def _new_script_info() -> dict:
+        return {
+            'job_name': None,
+            'nodes': 1,
+            'tasks_per_node': 1,
+            'cpus_per_task': 1,
+            'num_processes': None,
+            'queue': None,
+            'time_limit': None,
+            'partition': None,
+            'output': None,
+            'error': None,
+            'commands': [],
+        }
+
+    @staticmethod
+    def _parse_bsub_line(line: str, info: dict) -> None:
+        bsub_match = re.search(r'bsub\s+(.+?)(?:[`"\']|$)', line)
+        if not bsub_match:
+            return
+        bsub_args = bsub_match.group(1)
+
+        patterns = {
+            'job_name': r'-J\s+(\S+)',
+            'nodes': r'-N\s+(\d+)',
+            'num_processes': r'-n\s+(\d+)',
+            'tasks_per_node': r'-np\s+(\d+)',
+            'queue': r'-q\s+(\S+)',
+            'time_limit': r'-timelimit\s+(\S+)',
+            'output': r'-o\s+(\S+)',
+            'error': r'-e\s+(\S+)',
+        }
+
+        for key, pattern in patterns.items():
+            match = re.search(pattern, bsub_args)
+            if match:
+                value = match.group(1)
+                if key in ('nodes', 'num_processes', 'tasks_per_node'):
+                    value = int(value)
+                info[key] = value
+
+        if info.get('queue'):
+            info['partition'] = info['queue']
+
+        executable_match = re.search(r'(?:^|[\s])(\./\S+|/\S+)\s*', bsub_args)
+        if executable_match:
+            info['commands'].append(executable_match.group(1))
 
     # ------------------------------------------------------------------
     # 脚本准备（提交前逻辑）
@@ -395,9 +334,71 @@ class LsfAdapter(PlatformAdapter):
         Returns:
             int: 监控进程 PID
         """
-        pid = _start_login_monitor(jobid, interval, output_dir)
+        pid = self._start_login_monitor(jobid, interval, output_dir)
         logger.info(f"[LSF] 登录节点监控已启动 (pid={pid})")
         return pid
+
+    def _start_login_monitor(self, jobid: str, interval: int, output_dir: str) -> int:
+        os.makedirs(output_dir, exist_ok=True)
+        monitor_sh = os.path.join(output_dir, 'monitor_login_lsf.sh')
+        monitor_pid_file = os.path.join(output_dir, 'monitor_login_lsf.pid')
+
+        with open(monitor_sh, 'w', encoding='utf-8') as handle:
+            handle.write(self._build_login_monitor_script(jobid, interval, output_dir))
+        os.chmod(monitor_sh, 0o755)
+
+        process = subprocess.Popen(
+            [monitor_sh],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        with open(monitor_pid_file, 'w', encoding='utf-8') as handle:
+            handle.write(str(process.pid))
+
+        logger.info(f"[LSF] login-node monitoring started (pid={process.pid}): {output_dir}")
+        return process.pid
+
+    @staticmethod
+    def _build_login_monitor_script(jobid: str, interval: int, output_dir: str) -> str:
+        return f"""#!/bin/bash
+# PerfBench login-node monitoring for LSF job {jobid}
+JOBID={jobid}
+INTERVAL={interval}
+OUTDIR={output_dir}
+
+mkdir -p "$OUTDIR"
+
+while true; do
+    ts=$(date +%Y%m%d_%H%M%S)
+
+    {{
+        echo "### bjobs -w $JOBID"
+        bjobs -w "$JOBID"
+        echo
+        echo "### bjobs -l $JOBID"
+        bjobs -l "$JOBID"
+    }} > "$OUTDIR/bjobs_$ts.log" 2>&1 || true
+
+    state=$(awk '!/^(###|JOBID|---)/ && NF>1 && $1 ~ /^[0-9]+$/ {{print $2; exit}}' \\
+        "$OUTDIR/bjobs_$ts.log")
+
+    if [[ "$state" == "RUN" ]]; then
+        cnload -j "$JOBID" > "$OUTDIR/cnload_$ts.log" 2>&1 || true
+        cnload -b -j "$JOBID" > "$OUTDIR/cnload_bitmap_$ts.log" 2>&1 || true
+        grep 'SPE[0-9]' "$OUTDIR/cnload_bitmap_$ts.log" \\
+            >> "$OUTDIR/cnload_bitmap_filtered_$ts.log" 2>&1 || true
+    fi
+
+    if [[ "$state" == "DONE" || "$state" == "EXIT" || \\
+          "$state" == "CANCELED" || "$state" == "TERM" ]]; then
+        echo "Job $JOBID finished with state $state at $ts" \\
+            > "$OUTDIR/job_end_$ts.log"
+        break
+    fi
+
+    sleep "$INTERVAL"
+done
+"""
 
     # ------------------------------------------------------------------
     # 等待作业完成

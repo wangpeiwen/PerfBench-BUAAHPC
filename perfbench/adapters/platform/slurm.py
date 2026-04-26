@@ -24,141 +24,6 @@ from perfbench.utils.logger import get_logger
 logger = get_logger()
 
 
-def parse_slurm_script(script_path: str) -> dict:
-    info = {
-        'job_name': None,
-        'nodes': 1,
-        'tasks_per_node': 1,
-        'cpus_per_task': 1,
-        'time_limit': None,
-        'partition': None,
-        'output': None,
-        'error': None,
-        'commands': [],
-    }
-
-    try:
-        with open(script_path, 'r', encoding='utf-8') as handle:
-            lines = handle.readlines()
-
-        for line in lines:
-            line = line.strip()
-            if line.startswith('#SBATCH'):
-                _parse_sbatch_directive(line, info)
-            elif line and not line.startswith('#'):
-                info['commands'].append(line)
-    except Exception as exc:
-        logger.error(f"解析 SLURM 脚本失败: {exc}")
-        return None
-
-    return info
-
-
-def _parse_sbatch_directive(line: str, info: dict) -> None:
-    line = line.replace('#SBATCH', '').strip()
-    patterns = {
-        'job_name': r'(?:--job-name|-J)[= ](\S+)',
-        'nodes': r'(?:--nodes|-N)[= ](\d+)',
-        'tasks_per_node': r'--ntasks-per-node[= ](\d+)',
-        'cpus_per_task': r'--cpus-per-task[= ](\d+)',
-        'time_limit': r'(?:--time|-t)[= ](\S+)',
-        'partition': r'(?:--partition|-p)[= ](\S+)',
-        'output': r'(?:--output|-o)[= ](\S+)',
-        'error': r'(?:--error|-e)[= ](\S+)',
-    }
-
-    for key, pattern in patterns.items():
-        match = re.search(pattern, line)
-        if match:
-            value = match.group(1)
-            if key in ('nodes', 'tasks_per_node', 'cpus_per_task'):
-                value = int(value)
-            info[key] = value
-
-
-def _start_login_monitor(jobid: str, interval: int, output_dir: str) -> int:
-    os.makedirs(output_dir, exist_ok=True)
-    monitor_sh = os.path.join(output_dir, 'monitor_login.sh')
-    monitor_pid_file = os.path.join(output_dir, 'monitor_login.pid')
-
-    script = f"""#!/bin/bash
-# PerfBench login-node monitoring for SLURM job {jobid}
-JOBID={jobid}
-INTERVAL={interval}
-OUTDIR={output_dir}
-
-mkdir -p "$OUTDIR"
-
-while true; do
-    ts=$(date +%Y%m%d_%H%M%S)
-
-    sacct -j "$JOBID" --format=JobID,JobName%20,State,Elapsed,MaxRSS,AllocCPUs -P \\
-        > "$OUTDIR/sacct_$ts.log" 2>&1
-    sinfo -N -o "%N %t %f" > "$OUTDIR/sinfo_$ts.log" 2>&1 || true
-    sstat -j "$JOBID" --format=JobID,MaxRSS,AveRSS,MaxVMSize -P \\
-        > "$OUTDIR/sstat_$ts.log" 2>&1 || true
-    scontrol show job "$JOBID" > "$OUTDIR/scontrol_$ts.log" 2>&1 || true
-
-    state=$(sacct -j "$JOBID" -n -o State -P | head -n1)
-    inqueue=$(squeue -j "$JOBID" -h | wc -l)
-    if [[ "$state" =~ "COMPLETED" || "$state" =~ "FAILED" || \\
-          "$state" =~ "CANCELLED" || "$state" =~ "TIMEOUT" || \\
-          $inqueue -eq 0 ]]; then
-        seff "$JOBID" > "$OUTDIR/seff_$ts.log" 2>&1 || true
-        echo "Job $JOBID finished with state $state at $ts (squeue empty: $inqueue)" \\
-            > "$OUTDIR/job_end_$ts.log"
-        break
-    fi
-
-    sleep "$INTERVAL"
-done
-"""
-
-    with open(monitor_sh, 'w') as handle:
-        handle.write(script)
-    os.chmod(monitor_sh, 0o755)
-
-    process = subprocess.Popen(
-        [monitor_sh],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    with open(monitor_pid_file, 'w') as handle:
-        handle.write(str(process.pid))
-
-    logger.info(f"[SLURM] login-node monitoring started (pid={process.pid}): {output_dir}")
-    return process.pid
-
-
-def parse_elapsed_string(elapsed_str: str) -> Optional[int]:
-    """将 SLURM 的 HH:MM:SS 或 D-HH:MM:SS 转为秒。"""
-    if not elapsed_str:
-        return None
-
-    elapsed_str = str(elapsed_str).strip()
-    if '-' in elapsed_str:
-        days, rest = elapsed_str.split('-', 1)
-        parts = rest.split(':')
-        if len(parts) != 3:
-            return None
-        hours, minutes, seconds = parts
-        return (
-            int(days) * 86400
-            + int(hours) * 3600
-            + int(minutes) * 60
-            + int(seconds)
-        )
-
-    parts = elapsed_str.split(':')
-    if len(parts) == 3:
-        hours, minutes, seconds = parts
-        return int(hours) * 3600 + int(minutes) * 60 + int(seconds)
-    if len(parts) == 2:
-        minutes, seconds = parts
-        return int(minutes) * 60 + int(seconds)
-    return None
-
-
 class SlurmLogParser(PlatformLogParser):
     """解析 SLURM sacct 日志。"""
 
@@ -173,10 +38,39 @@ class SlurmLogParser(PlatformLogParser):
         summary.job_id = last.get("JobID")
         summary.job_name = last.get("JobName")
         summary.final_state = last.get("State")
-        summary.elapsed_seconds = parse_elapsed_string(last.get("Elapsed"))
+        summary.elapsed_seconds = self._parse_elapsed_string(last.get("Elapsed"))
         if summary.elapsed_seconds is None:
             logger.warning(f"无法解析 SLURM Elapsed: {last.get('Elapsed')}")
         return summary
+
+    @staticmethod
+    def _parse_elapsed_string(elapsed_str: str) -> Optional[int]:
+        """将 SLURM 的 HH:MM:SS 或 D-HH:MM:SS 转为秒。"""
+        if not elapsed_str:
+            return None
+
+        elapsed_str = str(elapsed_str).strip()
+        if '-' in elapsed_str:
+            days, rest = elapsed_str.split('-', 1)
+            parts = rest.split(':')
+            if len(parts) != 3:
+                return None
+            hours, minutes, seconds = parts
+            return (
+                int(days) * 86400
+                + int(hours) * 3600
+                + int(minutes) * 60
+                + int(seconds)
+            )
+
+        parts = elapsed_str.split(':')
+        if len(parts) == 3:
+            hours, minutes, seconds = parts
+            return int(hours) * 3600 + int(minutes) * 60 + int(seconds)
+        if len(parts) == 2:
+            minutes, seconds = parts
+            return int(minutes) * 60 + int(seconds)
+        return None
 
     def parse_sacct(self, out_dir: str) -> List[Dict]:
         """
@@ -239,7 +133,59 @@ class SlurmAdapter(PlatformAdapter):
         self.accelerator_monitor = accelerator_monitor or NullMonitor()
 
     def parse_script(self, script_path: str) -> dict:
-        return parse_slurm_script(script_path)
+        info = self._new_script_info()
+
+        try:
+            with open(script_path, 'r', encoding='utf-8') as handle:
+                lines = handle.readlines()
+
+            for line in lines:
+                line = line.strip()
+                if line.startswith('#SBATCH'):
+                    self._parse_sbatch_directive(line, info)
+                elif line and not line.startswith('#'):
+                    info['commands'].append(line)
+        except Exception as exc:
+            logger.error(f"解析 SLURM 脚本失败: {exc}")
+            return None
+
+        return info
+
+    @staticmethod
+    def _new_script_info() -> dict:
+        return {
+            'job_name': None,
+            'nodes': 1,
+            'tasks_per_node': 1,
+            'cpus_per_task': 1,
+            'time_limit': None,
+            'partition': None,
+            'output': None,
+            'error': None,
+            'commands': [],
+        }
+
+    @staticmethod
+    def _parse_sbatch_directive(line: str, info: dict) -> None:
+        line = line.replace('#SBATCH', '').strip()
+        patterns = {
+            'job_name': r'(?:--job-name|-J)[= ](\S+)',
+            'nodes': r'(?:--nodes|-N)[= ](\d+)',
+            'tasks_per_node': r'--ntasks-per-node[= ](\d+)',
+            'cpus_per_task': r'--cpus-per-task[= ](\d+)',
+            'time_limit': r'(?:--time|-t)[= ](\S+)',
+            'partition': r'(?:--partition|-p)[= ](\S+)',
+            'output': r'(?:--output|-o)[= ](\S+)',
+            'error': r'(?:--error|-e)[= ](\S+)',
+        }
+
+        for key, pattern in patterns.items():
+            match = re.search(pattern, line)
+            if match:
+                value = match.group(1)
+                if key in ('nodes', 'tasks_per_node', 'cpus_per_task'):
+                    value = int(value)
+                info[key] = value
 
     # ------------------------------------------------------------------
     # 脚本准备（提交前逻辑）
@@ -303,9 +249,64 @@ class SlurmAdapter(PlatformAdapter):
         Returns:
             int: 监控进程 PID
         """
-        pid = _start_login_monitor(jobid, interval, output_dir)
+        pid = self._start_login_monitor(jobid, interval, output_dir)
         logger.info(f"[SLURM] 登录节点监控已启动 (pid={pid})")
         return pid
+
+    def _start_login_monitor(self, jobid: str, interval: int, output_dir: str) -> int:
+        os.makedirs(output_dir, exist_ok=True)
+        monitor_sh = os.path.join(output_dir, 'monitor_login.sh')
+        monitor_pid_file = os.path.join(output_dir, 'monitor_login.pid')
+
+        with open(monitor_sh, 'w', encoding='utf-8') as handle:
+            handle.write(self._build_login_monitor_script(jobid, interval, output_dir))
+        os.chmod(monitor_sh, 0o755)
+
+        process = subprocess.Popen(
+            [monitor_sh],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        with open(monitor_pid_file, 'w', encoding='utf-8') as handle:
+            handle.write(str(process.pid))
+
+        logger.info(f"[SLURM] login-node monitoring started (pid={process.pid}): {output_dir}")
+        return process.pid
+
+    @staticmethod
+    def _build_login_monitor_script(jobid: str, interval: int, output_dir: str) -> str:
+        return f"""#!/bin/bash
+# PerfBench login-node monitoring for SLURM job {jobid}
+JOBID={jobid}
+INTERVAL={interval}
+OUTDIR={output_dir}
+
+mkdir -p "$OUTDIR"
+
+while true; do
+    ts=$(date +%Y%m%d_%H%M%S)
+
+    sacct -j "$JOBID" --format=JobID,JobName%20,State,Elapsed,MaxRSS,AllocCPUs -P \\
+        > "$OUTDIR/sacct_$ts.log" 2>&1
+    sinfo -N -o "%N %t %f" > "$OUTDIR/sinfo_$ts.log" 2>&1 || true
+    sstat -j "$JOBID" --format=JobID,MaxRSS,AveRSS,MaxVMSize -P \\
+        > "$OUTDIR/sstat_$ts.log" 2>&1 || true
+    scontrol show job "$JOBID" > "$OUTDIR/scontrol_$ts.log" 2>&1 || true
+
+    state=$(sacct -j "$JOBID" -n -o State -P | head -n1)
+    inqueue=$(squeue -j "$JOBID" -h | wc -l)
+    if [[ "$state" =~ "COMPLETED" || "$state" =~ "FAILED" || \\
+          "$state" =~ "CANCELLED" || "$state" =~ "TIMEOUT" || \\
+          $inqueue -eq 0 ]]; then
+        seff "$JOBID" > "$OUTDIR/seff_$ts.log" 2>&1 || true
+        echo "Job $JOBID finished with state $state at $ts (squeue empty: $inqueue)" \\
+            > "$OUTDIR/job_end_$ts.log"
+        break
+    fi
+
+    sleep "$INTERVAL"
+done
+"""
 
     # ------------------------------------------------------------------
     # 等待作业完成

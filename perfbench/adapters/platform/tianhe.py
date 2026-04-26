@@ -24,115 +24,6 @@ from perfbench.utils.logger import get_logger
 logger = get_logger()
 
 
-def parse_tianhe_script(script_path: str) -> dict:
-    info = {
-        'job_name': None,
-        'nodes': 1,
-        'tasks_per_node': 1,
-        'cpus_per_task': 1,
-        'num_processes': None,
-        'queue': None,
-        'time_limit': None,
-        'partition': None,
-        'output': None,
-        'error': None,
-        'commands': [],
-    }
-
-    try:
-        with open(script_path, 'r', encoding='utf-8') as handle:
-            lines = handle.readlines()
-
-        for line in lines:
-            stripped = line.strip()
-            if stripped.startswith('#MSUB'):
-                _parse_msub_directive(stripped, info)
-            elif stripped and not stripped.startswith('#'):
-                info['commands'].append(stripped)
-    except Exception as exc:
-        logger.error(f"解析天河 msub 脚本失败: {exc}")
-        return None
-
-    return info
-
-
-def _parse_msub_directive(line: str, info: dict) -> None:
-    line = line.replace('#MSUB', '').strip()
-    patterns = {
-        'job_name': r'-J[= ](\S+)',
-        'nodes': r'-N[= ](\d+)',
-        'num_processes': r'-n[= ](\d+)',
-        'cpus_per_task': r'-c[= ](\d+)',
-        'queue': r'-q[= ](\S+)',
-        'time_limit': r'(?:-t|-l\s+walltime=)[= ]?(\S+)',
-        'output': r'-o[= ](\S+)',
-        'error': r'-e[= ](\S+)',
-    }
-
-    for key, pattern in patterns.items():
-        match = re.search(pattern, line)
-        if match:
-            value = match.group(1)
-            if key in ('nodes', 'num_processes', 'cpus_per_task'):
-                value = int(value)
-            info[key] = value
-
-    if info.get('queue'):
-        info['partition'] = info['queue']
-
-
-def _start_login_monitor(jobid: str, interval: int, output_dir: str) -> int:
-    os.makedirs(output_dir, exist_ok=True)
-    monitor_sh = os.path.join(output_dir, 'monitor_login_tianhe.sh')
-    monitor_pid_file = os.path.join(output_dir, 'monitor_login_tianhe.pid')
-
-    script = f"""#!/bin/bash
-# PerfBench login-node monitoring for Tianhe job {jobid}
-JOBID={jobid}
-INTERVAL={interval}
-OUTDIR={output_dir}
-
-mkdir -p "$OUTDIR"
-
-while true; do
-    ts=$(date +%Y%m%d_%H%M%S)
-    mqueue -j "$JOBID" > "$OUTDIR/mqueue_$ts.log" 2>&1
-    rc=$?
-    output=$(cat "$OUTDIR/mqueue_$ts.log")
-    upper_output=$(echo "$output" | tr '[:lower:]' '[:upper:]')
-
-    if [[ $rc -ne 0 || -z "$output" || "$upper_output" == *"NOT FOUND"* ]]; then
-        echo "Job $JOBID left mqueue at $ts" > "$OUTDIR/job_end_$ts.log"
-        break
-    fi
-
-    if [[ "$upper_output" == *"DONE"* || "$upper_output" == *"EXIT"* || \\
-          "$upper_output" == *"CANCELLED"* || "$upper_output" == *"COMPLETED"* || \\
-          "$upper_output" == *"FAILED"* ]]; then
-        echo "Job $JOBID reached terminal state at $ts" > "$OUTDIR/job_end_$ts.log"
-        break
-    fi
-
-    sleep "$INTERVAL"
-done
-"""
-
-    with open(monitor_sh, 'w') as handle:
-        handle.write(script)
-    os.chmod(monitor_sh, 0o755)
-
-    process = subprocess.Popen(
-        [monitor_sh],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    with open(monitor_pid_file, 'w') as handle:
-        handle.write(str(process.pid))
-
-    logger.info(f"[Tianhe] login-node monitoring started (pid={process.pid}): {output_dir}")
-    return process.pid
-
-
 class TianheLogParser(PlatformLogParser):
     """天河调度日志解析占位实现。"""
 
@@ -152,7 +43,64 @@ class TianheAdapter(PlatformAdapter):
         self.accelerator_monitor = accelerator_monitor or NullMonitor()
 
     def parse_script(self, script_path: str) -> dict:
-        return parse_tianhe_script(script_path)
+        info = self._new_script_info()
+
+        try:
+            with open(script_path, 'r', encoding='utf-8') as handle:
+                lines = handle.readlines()
+
+            for line in lines:
+                stripped = line.strip()
+                if stripped.startswith('#MSUB'):
+                    self._parse_msub_directive(stripped, info)
+                elif stripped and not stripped.startswith('#'):
+                    info['commands'].append(stripped)
+        except Exception as exc:
+            logger.error(f"解析天河 msub 脚本失败: {exc}")
+            return None
+
+        return info
+
+    @staticmethod
+    def _new_script_info() -> dict:
+        return {
+            'job_name': None,
+            'nodes': 1,
+            'tasks_per_node': 1,
+            'cpus_per_task': 1,
+            'num_processes': None,
+            'queue': None,
+            'time_limit': None,
+            'partition': None,
+            'output': None,
+            'error': None,
+            'commands': [],
+        }
+
+    @staticmethod
+    def _parse_msub_directive(line: str, info: dict) -> None:
+        line = line.replace('#MSUB', '').strip()
+        patterns = {
+            'job_name': r'-J[= ](\S+)',
+            'nodes': r'-N[= ](\d+)',
+            'num_processes': r'-n[= ](\d+)',
+            'cpus_per_task': r'-c[= ](\d+)',
+            'queue': r'-q[= ](\S+)',
+            'time_limit': r'(?:-t|-l\s+walltime=)[= ]?(\S+)',
+            'output': r'-o[= ](\S+)',
+            'error': r'-e[= ](\S+)',
+        }
+
+        for key, pattern in patterns.items():
+            match = re.search(pattern, line)
+            if match:
+                value = match.group(1)
+                if key in ('nodes', 'num_processes', 'cpus_per_task'):
+                    value = int(value)
+                info[key] = value
+
+        if info.get('queue'):
+            info['partition'] = info['queue']
 
     # ------------------------------------------------------------------
     # 脚本准备（提交前逻辑）
