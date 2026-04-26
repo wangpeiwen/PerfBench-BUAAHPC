@@ -83,7 +83,7 @@ perfbench/
 │   ├── core/
 │   │   ├── __init__.py                   # 核心模块包初始化文件
 │   │   ├── initializer.py               # 环境初始化模块，负责架构检测、SLURM 环境检查和依赖库安装
-│   │   ├── script_processor.py           # 脚本处理器模块，负责 SLURM/申威作业脚本的解析、改写和提交
+│   │   ├── job_runner.py                 # 作业运行器模块，负责作业解析、准备、提交、监控和等待完成
 │   │   └── validator.py                  # 环境验证模块，通过创建和提交测试作业验证集群环境可用性
 │   ├── report/
 │   │   ├── Arial.ttf                     # 中文字体文件，用于 PDF 证书中的中文内容渲染

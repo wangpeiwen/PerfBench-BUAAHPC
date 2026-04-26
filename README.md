@@ -364,7 +364,7 @@ perfbench/
 │   ├── platform_config.json  # 平台配置文件（运行时唯一配置源）
 │   ├── core/                 # 核心功能模块
 │   │   ├── initializer.py    # 环境初始化
-│   │   ├── script_processor.py # 评测执行器（run_evaluation）
+│   │   ├── job_runner.py      # 作业运行器（run_evaluation）
 │   │   └── validator.py      # 环境验证器
 │   ├── libs/                 # 不同架构的库文件（预留能力，当前版本不包含）
 │   ├── report/               # 报告生成模块

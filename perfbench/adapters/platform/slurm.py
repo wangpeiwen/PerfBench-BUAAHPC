@@ -14,7 +14,7 @@ import time
 from typing import Dict, List, Optional
 from perfbench.adapters.platform.base import (
     PlatformAdapter,
-    write_instrumented_batch_script,
+    write_batch_script_with_accelerator_monitoring,
 )
 from perfbench.adapters.accelerator.base import AcceleratorMonitor
 from perfbench.adapters.accelerator.none import NullMonitor
@@ -202,13 +202,13 @@ class SlurmAdapter(PlatformAdapter):
         sampler_block = self.accelerator_monitor.generate_sampler_block(
             output_dir, interval
         )
-        modified_script = write_instrumented_batch_script(
+        modified_script = write_batch_script_with_accelerator_monitoring(
             script_path,
             directive_prefix="#SBATCH",
             output_dir=output_dir,
             output_name="modified_script.slurm",
             job_id_env_name="SLURM_JOB_ID",
-            extra_injection=sampler_block,
+            accelerator_sampler_block=sampler_block,
         )
         logger.info(f"[SLURM] 监控脚本已生成: {modified_script}")
         return modified_script

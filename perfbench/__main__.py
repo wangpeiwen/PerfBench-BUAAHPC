@@ -16,7 +16,7 @@ from perfbench.analysis import (
     get_platform_config,
 )
 from perfbench.core.initializer import initialize_environment
-from perfbench.core.script_processor import run_evaluation
+from perfbench.core.job_runner import run_evaluation
 from perfbench.core.validator import validate_environment
 from perfbench.utils.logger import setup_logging
 from perfbench.utils.progress_bar import StepProgress

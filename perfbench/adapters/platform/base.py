@@ -12,13 +12,13 @@ from abc import ABC, abstractmethod
 from perfbench.adapters.platform.logs import PlatformLogParser
 
 
-def write_instrumented_batch_script(
+def write_batch_script_with_accelerator_monitoring(
     original_script: str,
     directive_prefix: str,
     output_dir: str,
     output_name: str,
     job_id_env_name: str,
-    extra_injection: str = "",
+    accelerator_sampler_block: str = "",
 ) -> str:
     with open(original_script, 'r') as handle:
         lines = handle.readlines()
@@ -28,8 +28,8 @@ def write_instrumented_batch_script(
         f'echo "PerfBench: job started on $(hostname)" > {output_dir}/job_node_info.txt\n'
         f'echo "{job_id_env_name}=${{{job_id_env_name}:-}}" >> {output_dir}/job_node_info.txt\n'
     )
-    if extra_injection:
-        env_setup += extra_injection
+    if accelerator_sampler_block:
+        env_setup += accelerator_sampler_block
 
     if not lines or not lines[0].startswith('#!'):
         lines.insert(0, '#!/bin/bash\n')

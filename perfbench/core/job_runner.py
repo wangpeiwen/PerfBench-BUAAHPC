@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Script processor module for PerfBench.
+Job runner module for PerfBench.
 
 提供统一的作业处理函数 run_evaluation()，委托给平台适配器完成
 平台相关的脚本准备、作业提交、登录节点监控和等待逻辑。

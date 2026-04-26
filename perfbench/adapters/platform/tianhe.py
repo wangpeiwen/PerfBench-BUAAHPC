@@ -14,7 +14,7 @@ import time
 from typing import Optional
 from perfbench.adapters.platform.base import (
     PlatformAdapter,
-    write_instrumented_batch_script,
+    write_batch_script_with_accelerator_monitoring,
 )
 from perfbench.adapters.accelerator.base import AcceleratorMonitor
 from perfbench.adapters.accelerator.none import NullMonitor
@@ -119,13 +119,13 @@ class TianheAdapter(PlatformAdapter):
         sampler_block = self.accelerator_monitor.generate_sampler_block(
             output_dir, interval
         )
-        modified_script = write_instrumented_batch_script(
+        modified_script = write_batch_script_with_accelerator_monitoring(
             script_path,
             directive_prefix="#MSUB",
             output_dir=output_dir,
             output_name="modified_script.msub",
             job_id_env_name="PBS_JOBID",
-            extra_injection=sampler_block,
+            accelerator_sampler_block=sampler_block,
         )
         logger.info(f"[Tianhe] 监控脚本已生成: {modified_script}")
         return modified_script
