@@ -184,9 +184,62 @@ class TianheAdapter(PlatformAdapter):
         Returns:
             int: 监控进程 PID
         """
-        pid = _start_login_monitor(jobid, interval, output_dir)
+        pid = self._start_login_monitor(jobid, interval, output_dir)
         logger.info(f"[Tianhe] 登录节点监控已启动 (pid={pid})")
         return pid
+
+    def _start_login_monitor(self, jobid: str, interval: int, output_dir: str) -> int:
+        os.makedirs(output_dir, exist_ok=True)
+        monitor_sh = os.path.join(output_dir, 'monitor_login_tianhe.sh')
+        monitor_pid_file = os.path.join(output_dir, 'monitor_login_tianhe.pid')
+
+        with open(monitor_sh, 'w', encoding='utf-8') as handle:
+            handle.write(self._build_login_monitor_script(jobid, interval, output_dir))
+        os.chmod(monitor_sh, 0o755)
+
+        process = subprocess.Popen(
+            [monitor_sh],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        with open(monitor_pid_file, 'w', encoding='utf-8') as handle:
+            handle.write(str(process.pid))
+
+        logger.info(f"[Tianhe] login-node monitoring started (pid={process.pid}): {output_dir}")
+        return process.pid
+
+    @staticmethod
+    def _build_login_monitor_script(jobid: str, interval: int, output_dir: str) -> str:
+        return f"""#!/bin/bash
+# PerfBench login-node monitoring for Tianhe job {jobid}
+JOBID={jobid}
+INTERVAL={interval}
+OUTDIR={output_dir}
+
+mkdir -p "$OUTDIR"
+
+while true; do
+    ts=$(date +%Y%m%d_%H%M%S)
+    mqueue -j "$JOBID" > "$OUTDIR/mqueue_$ts.log" 2>&1
+    rc=$?
+    output=$(cat "$OUTDIR/mqueue_$ts.log")
+    upper_output=$(echo "$output" | tr '[:lower:]' '[:upper:]')
+
+    if [[ $rc -ne 0 || -z "$output" || "$upper_output" == *"NOT FOUND"* ]]; then
+        echo "Job $JOBID left mqueue at $ts" > "$OUTDIR/job_end_$ts.log"
+        break
+    fi
+
+    if [[ "$upper_output" == *"DONE"* || "$upper_output" == *"EXIT"* || \\
+          "$upper_output" == *"CANCELLED"* || "$upper_output" == *"COMPLETED"* || \\
+          "$upper_output" == *"FAILED"* ]]; then
+        echo "Job $JOBID reached terminal state at $ts" > "$OUTDIR/job_end_$ts.log"
+        break
+    fi
+
+    sleep "$INTERVAL"
+done
+"""
 
     # ------------------------------------------------------------------
     # 等待作业完成
