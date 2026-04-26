@@ -405,7 +405,6 @@ perfbench/
 │   │   └── config_reader.py  # 平台配置读取器
 │   └── utils/                # 工具函数
 │       ├── logger.py         # 日志管理
-│       ├── monitoring.py     # 脚本准备器 + 监控执行器
 │       ├── script_parser.py   # 脚本解析器（SLURM #SBATCH / LSF bsub 命令行）
 │       └── system_checker.py # 系统环境检查
 ```

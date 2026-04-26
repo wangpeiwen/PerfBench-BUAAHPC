@@ -11,17 +11,70 @@ import glob
 import subprocess
 import time
 from typing import Dict, List, Optional
-from perfbench.adapters.platform.base import PlatformAdapter
+from perfbench.adapters.platform.base import (
+    PlatformAdapter,
+    write_instrumented_batch_script,
+)
 from perfbench.adapters.accelerator.base import AcceleratorMonitor
 from perfbench.adapters.accelerator.none import NullMonitor
 from perfbench.adapters.platform.logs import JobLogSummary, PlatformLogParser
 from perfbench.utils.logger import get_logger
-from perfbench.utils.monitoring import (
-    generate_monitoring_script,
-    start_monitoring_on_login,
-)
 
 logger = get_logger()
+
+
+def _start_login_monitor(jobid: str, interval: int, output_dir: str) -> int:
+    os.makedirs(output_dir, exist_ok=True)
+    monitor_sh = os.path.join(output_dir, 'monitor_login.sh')
+    monitor_pid_file = os.path.join(output_dir, 'monitor_login.pid')
+
+    script = f"""#!/bin/bash
+# PerfBench login-node monitoring for SLURM job {jobid}
+JOBID={jobid}
+INTERVAL={interval}
+OUTDIR={output_dir}
+
+mkdir -p "$OUTDIR"
+
+while true; do
+    ts=$(date +%Y%m%d_%H%M%S)
+
+    sacct -j "$JOBID" --format=JobID,JobName%20,State,Elapsed,MaxRSS,AllocCPUs -P \\
+        > "$OUTDIR/sacct_$ts.log" 2>&1
+    sinfo -N -o "%N %t %f" > "$OUTDIR/sinfo_$ts.log" 2>&1 || true
+    sstat -j "$JOBID" --format=JobID,MaxRSS,AveRSS,MaxVMSize -P \\
+        > "$OUTDIR/sstat_$ts.log" 2>&1 || true
+    scontrol show job "$JOBID" > "$OUTDIR/scontrol_$ts.log" 2>&1 || true
+
+    state=$(sacct -j "$JOBID" -n -o State -P | head -n1)
+    inqueue=$(squeue -j "$JOBID" -h | wc -l)
+    if [[ "$state" =~ "COMPLETED" || "$state" =~ "FAILED" || \\
+          "$state" =~ "CANCELLED" || "$state" =~ "TIMEOUT" || \\
+          $inqueue -eq 0 ]]; then
+        seff "$JOBID" > "$OUTDIR/seff_$ts.log" 2>&1 || true
+        echo "Job $JOBID finished with state $state at $ts (squeue empty: $inqueue)" \\
+            > "$OUTDIR/job_end_$ts.log"
+        break
+    fi
+
+    sleep "$INTERVAL"
+done
+"""
+
+    with open(monitor_sh, 'w') as handle:
+        handle.write(script)
+    os.chmod(monitor_sh, 0o755)
+
+    process = subprocess.Popen(
+        [monitor_sh],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    with open(monitor_pid_file, 'w') as handle:
+        handle.write(str(process.pid))
+
+    logger.info(f"[SLURM] login-node monitoring started (pid={process.pid}): {output_dir}")
+    return process.pid
 
 
 def parse_elapsed_string(elapsed_str: str) -> Optional[int]:
@@ -147,8 +200,12 @@ class SlurmAdapter(PlatformAdapter):
         sampler_block = self.accelerator_monitor.generate_sampler_block(
             output_dir, interval
         )
-        modified_script = generate_monitoring_script(
-            script_path, script_info, interval, output_dir,
+        modified_script = write_instrumented_batch_script(
+            script_path,
+            directive_prefix="#SBATCH",
+            output_dir=output_dir,
+            output_name="modified_script.slurm",
+            job_id_env_name="SLURM_JOB_ID",
             extra_injection=sampler_block,
         )
         logger.info(f"[SLURM] 监控脚本已生成: {modified_script}")
@@ -190,7 +247,7 @@ class SlurmAdapter(PlatformAdapter):
         Returns:
             int: 监控进程 PID
         """
-        pid = start_monitoring_on_login(jobid, interval, output_dir)
+        pid = _start_login_monitor(jobid, interval, output_dir)
         logger.info(f"[SLURM] 登录节点监控已启动 (pid={pid})")
         return pid
 

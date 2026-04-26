@@ -12,10 +12,70 @@ from typing import Dict, List, Optional
 from perfbench.adapters.platform.base import PlatformAdapter
 from perfbench.adapters.platform.logs import JobLogSummary, PlatformLogParser
 from perfbench.utils.logger import get_logger
-from perfbench.utils.monitoring import start_lsf_monitoring_on_login
 from perfbench.utils.script_parser import parse_lsf_script
 
 logger = get_logger()
+
+
+def _start_login_monitor(jobid: str, interval: int, output_dir: str) -> int:
+    os.makedirs(output_dir, exist_ok=True)
+    monitor_sh = os.path.join(output_dir, 'monitor_login_lsf.sh')
+    monitor_pid_file = os.path.join(output_dir, 'monitor_login_lsf.pid')
+
+    script = f"""#!/bin/bash
+# PerfBench login-node monitoring for LSF job {jobid}
+JOBID={jobid}
+INTERVAL={interval}
+OUTDIR={output_dir}
+
+mkdir -p "$OUTDIR"
+
+while true; do
+    ts=$(date +%Y%m%d_%H%M%S)
+
+    {{
+        echo "### bjobs -w $JOBID"
+        bjobs -w "$JOBID"
+        echo
+        echo "### bjobs -l $JOBID"
+        bjobs -l "$JOBID"
+    }} > "$OUTDIR/bjobs_$ts.log" 2>&1 || true
+
+    state=$(awk '!/^(###|JOBID|---)/ && NF>1 && $1 ~ /^[0-9]+$/ {{print $2; exit}}' \\
+        "$OUTDIR/bjobs_$ts.log")
+
+    if [[ "$state" == "RUN" ]]; then
+        cnload -j "$JOBID" > "$OUTDIR/cnload_$ts.log" 2>&1 || true
+        cnload -b -j "$JOBID" > "$OUTDIR/cnload_bitmap_$ts.log" 2>&1 || true
+        grep 'SPE[0-9]' "$OUTDIR/cnload_bitmap_$ts.log" \\
+            >> "$OUTDIR/cnload_bitmap_filtered_$ts.log" 2>&1 || true
+    fi
+
+    if [[ "$state" == "DONE" || "$state" == "EXIT" || \\
+          "$state" == "CANCELED" || "$state" == "TERM" ]]; then
+        echo "Job $JOBID finished with state $state at $ts" \\
+            > "$OUTDIR/job_end_$ts.log"
+        break
+    fi
+
+    sleep "$INTERVAL"
+done
+"""
+
+    with open(monitor_sh, 'w') as handle:
+        handle.write(script)
+    os.chmod(monitor_sh, 0o755)
+
+    process = subprocess.Popen(
+        [monitor_sh],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    with open(monitor_pid_file, 'w') as handle:
+        handle.write(str(process.pid))
+
+    logger.info(f"[LSF] login-node monitoring started (pid={process.pid}): {output_dir}")
+    return process.pid
 
 
 def parse_perfbench_timestamp(time_stamp: str) -> Optional[datetime]:
@@ -269,7 +329,7 @@ class LsfAdapter(PlatformAdapter):
         Returns:
             int: 监控进程 PID
         """
-        pid = start_lsf_monitoring_on_login(jobid, interval, output_dir)
+        pid = _start_login_monitor(jobid, interval, output_dir)
         logger.info(f"[LSF] 登录节点监控已启动 (pid={pid})")
         return pid
 

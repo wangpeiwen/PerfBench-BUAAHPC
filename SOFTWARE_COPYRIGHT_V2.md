@@ -95,8 +95,6 @@ perfbench/
 │   └── utils/
 │       ├── __init__.py                   # 工具模块包初始化文件
 │       ├── logger.py                     # 日志管理模块，配置文件和控制台双输出的日志系统
-│       ├── monitor_login.py              # 登录节点监控模块，生成并启动 SLURM 平台的后台监控脚本
-│       ├── monitoring.py                 # 监控功能模块，负责监控脚本生成、代码注入和申威平台监控启动
 │       ├── progress_bar.py               # 进度条模块，提供简单进度条和分步进度条两种显示方式
 │       ├── result_handler.py             # 结果处理模块，解析 sacct/bjobs 日志、计算并行度和并行效率
 │       ├── script_parser.py              # 脚本解析模块，通过正则表达式提取 SBATCH 指令中的作业配置参数
