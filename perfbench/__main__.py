@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""PerfBench command-line entry point."""
+"""PerfBench 命令行入口。"""
 
 import argparse
 import os
@@ -28,55 +28,56 @@ ACCELERATOR_CHOICES = ("dcu", "matrix", "none")
 
 def parse_arguments() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="PerfBench - HPC performance benchmark tool"
+        description="PerfBench - 超算集群性能基准测试工具"
     )
-    parser.add_argument("-init", action="store_true", help="initialize runtime environment")
-    parser.add_argument("-s", "--script", type=str, help="job submission script path")
-    parser.add_argument("-t", "--interval", type=int, help="monitoring interval in seconds")
-    parser.add_argument("-o", "--output", type=str, help="output directory")
-    parser.add_argument("-v", action="store_true", help="validate runtime environment")
-    parser.add_argument("--force", action="store_true", help="skip environment checks for debugging")
+    parser.add_argument("-init", action="store_true", help="初始化工具运行环境")
+    parser.add_argument("-s", "--script", type=str, help="作业提交脚本路径")
+    parser.add_argument("-t", "--interval", type=int, help="性能采集时间间隔（秒）")
+    parser.add_argument("-o", "--output", type=str, help="输出目录路径")
+    parser.add_argument("-v", action="store_true", help="运行工具适配性测试")
+    parser.add_argument("--force", action="store_true",
+                        help="跳过环境检测（仅用于调试）")
     parser.add_argument(
         "--platform",
         choices=PLATFORM_CHOICES,
         default="slurm",
-        help="scheduler platform, default: slurm",
+        help="调度平台类型，默认 slurm",
     )
     parser.add_argument(
         "--accelerator",
         type=str,
         default=None,
         choices=ACCELERATOR_CHOICES,
-        help="accelerator type, overrides platform_config.json",
+        help="加速卡类型（覆盖 platform_config.json）",
     )
     parser.add_argument(
         "--accelerator-interval",
         type=int,
         default=None,
-        help="accelerator sampling interval in seconds, defaults to --interval",
+        help="加速卡采样间隔（秒），默认使用全局 interval",
     )
     parser.add_argument(
         "--overhead",
         action="store_true",
-        help="capture a final scheduler log snapshot after the job ends",
+        help="开销测试模式：作业结束后额外抓取最终调度日志快照",
     )
     parser.add_argument(
         "--config",
         type=str,
         default=None,
-        help="test configuration file path (.yaml/.json)",
+        help="测试配置文件路径（.yaml/.json）",
     )
     parser.add_argument(
         "--granularity",
         type=str,
         default=None,
         choices=["board", "core"],
-        help="test granularity: board or core",
+        help="测试粒度等级：board（板卡级）/ core（内部核级）",
     )
     parser.add_argument(
         "--init-config",
         action="store_true",
-        help="copy test configuration templates to the current directory",
+        help="复制测试配置模板到当前目录",
     )
     parser.add_argument("--version", action="version", version="%(prog)s 1.0.0")
     return parser
@@ -98,18 +99,18 @@ def main() -> None:
         return
 
     if args.script and (not args.interval or not args.output):
-        parser.error("--script mode requires both --interval and --output")
+        parser.error("--script 模式必须同时指定 --interval 和 --output")
 
     logger = setup_logging()
 
     steps = [
-        "Read job script",
-        "Prepare instrumented script",
-        "Submit job",
-        "Start monitoring",
-        "Wait for job",
-        "Generate report",
-        "Finish report",
+        "读取作业提交脚本",
+        "生成监控脚本",
+        "提交作业",
+        "启动监控",
+        "等待作业结束",
+        "生成报告",
+        "报告生成完成",
     ]
 
     try:
@@ -132,7 +133,7 @@ def main() -> None:
         if args.script:
             progress = StepProgress(steps)
             progress.next()
-            progress.next("Prepare instrumented script")
+            progress.next("生成监控脚本")
 
             job_dir, script_info = _run_evaluation(
                 script_path=args.script,
@@ -152,7 +153,7 @@ def main() -> None:
             return
 
     except Exception as exc:
-        logger.error(f"PerfBench failed: {exc}")
+        logger.error(f"PerfBench 执行失败: {exc}")
         import traceback
 
         traceback.print_exc()
@@ -172,9 +173,9 @@ def _copy_config_template() -> None:
             copied.append(dst)
 
     for path in copied:
-        print(f"generated: {path}")
+        print(f"已生成: {path}")
     if not copied:
-        print("no config templates found")
+        print("未找到配置模板文件")
 
 
 def _run_config_mode(args, logger) -> None:
@@ -197,7 +198,7 @@ def _run_config_mode(args, logger) -> None:
     errors = validate_test_config(config)
     if errors:
         for error in errors:
-            logger.error(f"invalid config: {error}")
+            logger.error(f"配置文件校验失败: {error}")
         sys.exit(1)
 
     output_dir = args.output or os.path.join(
@@ -217,14 +218,14 @@ def _run_config_mode(args, logger) -> None:
     )
 
     plan_path = generate_test_plan(config, platform_config, output_dir)
-    logger.info(f"test plan generated: {plan_path}")
+    logger.info(f"测试计划已生成: {plan_path}")
 
     support_enabled = config.get("support", {}).get("enabled", False)
     if support_enabled:
-        logger.info("running before/after support-software evaluation")
+        logger.info("评测模式：支撑软件前后对比评测")
         orchestrator = BeforeAfterOrchestrator(config, adapter, output_dir)
     else:
-        logger.info("running multi-scale application evaluation")
+        logger.info("评测模式：应用软件多尺度评测")
         orchestrator = MultiScaleOrchestrator(config, adapter, output_dir)
 
     result = orchestrator.run()
@@ -233,13 +234,13 @@ def _run_config_mode(args, logger) -> None:
         config, platform_config, result, output_dir,
         is_support=support_enabled,
     )
-    logger.info(f"full report generated: {md_path}, {json_path}")
+    logger.info(f"完整报告已生成: {md_path}, {json_path}")
 
     if "error" in result:
-        logger.error(f"evaluation failed: {result['error']}")
+        logger.error(f"评测失败: {result['error']}")
         sys.exit(1)
 
-    logger.info(f"evaluation output directory: {output_dir}")
+    logger.info(f"评测输出目录: {output_dir}")
     _log_config_mode_summary(logger, result, support_enabled)
 
 
@@ -251,9 +252,9 @@ def _log_config_mode_summary(logger, result: dict, support_enabled: bool) -> Non
 
     for entry in result.get("scalability_report", []):
         logger.info(
-            f"  cores={entry.get('cores')}, "
-            f"speedup={entry.get('speedup', 0):.2f}, "
-            f"efficiency={entry.get('efficiency', 0):.2f}%"
+            f"  核数={entry.get('cores')}, "
+            f"加速比={entry.get('speedup', 0):.2f}, "
+            f"并行效率={entry.get('efficiency', 0):.2f}%"
         )
 
 
@@ -276,8 +277,8 @@ def _run_evaluation(script_path: str, interval: int, output_dir: str,
         capture_final_logs=overhead_mode,
     )
 
-    logger.info(f"PerfBench evaluation output directory: {job_dir}")
-    progress.next("Generate report")
+    logger.info(f"PerfBench 评测输出目录: {job_dir}")
+    progress.next("生成报告")
 
     return job_dir, script_info
 
@@ -300,7 +301,7 @@ def _generate_report(logger, job_dir: str, script_info: dict,
                      interval: int, platform: str) -> None:
     platform_config = get_platform_config()
     if platform_config is None:
-        logger.error("failed to read platform configuration")
+        logger.error("读取平台配置失败")
         return
 
     parallelism_info = calculate_parallelism(
@@ -308,22 +309,22 @@ def _generate_report(logger, job_dir: str, script_info: dict,
         node_num=script_info["nodes"],
     )
     if parallelism_info is None:
-        logger.error("failed to calculate parallelism")
+        logger.error("并行度计算失败")
         return
-    logger.info(f"parallelism: {parallelism_info}")
+    logger.info(f"并行度信息: {parallelism_info}")
 
     log_parser = get_platform_adapter(platform).get_log_parser()
     log_summary = log_parser.parse_job_logs(job_dir, interval)
     elapsed_time = log_summary.elapsed_seconds
     if elapsed_time is None:
-        logger.error("failed to parse elapsed job time")
+        logger.error("无法解析作业运行时间")
         return
 
     para_eff = calculate_efficiency(
         platform_config, parallelism_info, elapsed_time
     )
     if para_eff is None:
-        logger.error("failed to calculate parallel efficiency")
+        logger.error("并行效率计算失败")
         return
 
     report_info = {
@@ -331,19 +332,19 @@ def _generate_report(logger, job_dir: str, script_info: dict,
         "node_num": script_info["nodes"],
         "app_name": script_info["job_name"],
         "core_num": parallelism_info["core_num"],
-        "eff": f"{para_eff:.2f}%({platform_config['compared_cores']} Nodes)",
+        "eff": f"{para_eff:.2f}%({platform_config['compared_cores']} 节点)",
         "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
 
     _attach_accelerator_summary(logger, job_dir, platform_config, report_info)
 
-    logger.info(f"certificate data: {report_info}")
+    logger.info(f"证书生成信息: {report_info}")
     try:
         from perfbench.report.certificate_generator import generate_certificate
 
         generate_certificate(report_info, job_dir)
     except ImportError:
-        logger.warning("reportlab/pypdf is missing; PDF certificate was skipped")
+        logger.warning("缺少 reportlab/pypdf，跳过 PDF 证书生成")
 
 
 def _attach_accelerator_summary(logger, job_dir: str,
@@ -360,13 +361,13 @@ def _attach_accelerator_summary(logger, job_dir: str,
         if not summary:
             return
 
-        logger.info(f"accelerator summary: {summary}")
+        logger.info(f"加速卡监控摘要: {summary}")
         for key, value in summary.items():
             report_info[f"accelerator_{key}"] = value
     except FileNotFoundError:
-        logger.warning("accelerator log directory was not found")
+        logger.warning("未找到加速卡监控日志目录")
     except Exception as exc:
-        logger.warning(f"failed to parse accelerator logs: {exc}")
+        logger.warning(f"解析加速卡监控日志失败: {exc}")
 
 
 if __name__ == "__main__":
