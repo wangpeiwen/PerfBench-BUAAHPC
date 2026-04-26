@@ -22,14 +22,7 @@ logger = get_logger()
 
 def get_platform_config() -> Optional[dict]:
     """
-    从 platform_config.json 中读取平台配置信息。
-
-    配置文件位置固定为 perfbench/ 包根目录下的 platform_config.json，
-    该文件是运行时唯一的主配置来源。
-
-    Returns:
-        dict: 包含 platform_name / compared_cores / compared_run_time 的配置字典；
-              读取失败时返回 None。
+        读取平台配置文件 platform_config.json。
     """
     try:
         # 定位：从本文件（perfbench/analysis/config_reader.py）向上两级到 perfbench/
