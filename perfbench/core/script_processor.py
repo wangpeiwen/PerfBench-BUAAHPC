@@ -5,10 +5,6 @@ Script processor module for PerfBench.
 
 提供统一的作业处理函数 run_evaluation()，委托给平台适配器完成
 平台相关的脚本准备、作业提交、登录节点监控和等待逻辑。
-
-为保持向后兼容，同时保留：
-- process_slurm_script()：原 SLURM 入口，内部委托给 SlurmAdapter
-- process_sunway_script()：原申威入口，内部委托给 SunwayAdapter
 """
 
 import os

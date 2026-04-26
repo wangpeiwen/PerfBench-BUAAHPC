@@ -77,20 +77,15 @@ chmod +x perfbench.py
 ./perfbench.py -s /path/to/script.slurm -t 60 -o /path/to/output
 ```
 
-对于申威平台，添加 `-sw` 参数（脚本为 csh/bash wrapper，内部自行调用 `bsub`）：
+对于申威平台，使用 `--platform sunway`（脚本为 csh/bash wrapper，内部自行调用 `bsub`）：
 ```bash
-./perfbench.py -s /path/to/submit_script.csh -t 60 -o /path/to/output -sw
+./perfbench.py -s /path/to/submit_script.csh -t 60 -o /path/to/output --platform sunway
 ```
 
 #### 5. 启用加速卡监控
-通过 `--accelerator` 参数指定加速卡类型（当前支持 `dcu`），在所有计算节点自动采集：
+通过 `--accelerator` 参数指定加速卡类型（当前支持 `dcu` / `matrix`），在所有计算节点自动采集：
 ```bash
 ./perfbench.py -s /path/to/script.slurm -t 60 -o /path/to/output --accelerator dcu
-```
-
-也可以使用 `--dcu` 快捷方式（等价于 `--accelerator dcu`）：
-```bash
-./perfbench.py -s /path/to/script.slurm -t 60 -o /path/to/output --dcu
 ```
 
 指定加速卡独立的采样间隔（秒）：
@@ -98,7 +93,7 @@ chmod +x perfbench.py
 ./perfbench.py -s /path/to/script.slurm -t 60 -o /path/to/output --accelerator dcu --accelerator-interval 10
 ```
 
-> 如果 `platform_config.json` 中已设置 `"accelerator_type": "dcu"`，则无需 `--accelerator` 或 `--dcu` 参数，工具会自动启用。
+> 如果 `platform_config.json` 中已设置 `"accelerator_type": "dcu"`，则无需 `--accelerator` 参数，工具会自动启用。
 
 #### 6. 显示版本信息
 ```bash
@@ -114,15 +109,12 @@ chmod +x perfbench.py
 | `-s, --script` | - | 指定SLURM/申威作业脚本路径 | `-s script.slurm/script.sh` |
 | `-t, --interval` | - | 设置性能数据采集间隔（秒，必需） | `-t 60` |
 | `-o, --output` | - | 指定输出目录路径（必需） | `-o /tmp/output` |
-| `-sw` | - | 指定为申威平台（可选，默认自动检测） | `-sw` |
-| `--accelerator` | - | 加速卡类型（`dcu` / `none`），覆盖配置文件 | `--accelerator dcu` |
+| `--platform` | - | 调度平台类型（`slurm` / `sunway` / `tianhe`） | `--platform sunway` |
+| `--accelerator` | - | 加速卡类型（`dcu` / `matrix` / `none`），覆盖配置文件 | `--accelerator dcu` |
 | `--accelerator-interval` | - | 加速卡采样间隔（秒），默认使用 `-t` 值 | `--accelerator-interval 10` |
-| `--dcu` | - | 启用海光 DCU 监控（等价于 `--accelerator dcu`） | `--dcu` |
-| `--dcu-interval` | - | DCU 采样间隔（秒），等价于 `--accelerator-interval` | `--dcu-interval 10` |
 | `--config` | - | 测试配置文件路径（.yaml/.json），启用多规模/支撑软件评测 | `--config test.yaml` |
 | `--granularity` | - | 测试粒度：`board`（板卡级，默认）/ `core`（内部核级） | `--granularity core` |
 | `--init-config` | - | 生成测试配置模板文件到当前目录 | `--init-config` |
-| `--tianhe` | - | 指定为天河迈创平台（使用 msub/mqueue 调度） | `--tianhe` |
 | `--force` | - | 跳过环境检测，仅用于调试 | `--force` |
 | `--version` | - | 显示工具版本信息 | `./perfbench.py --version` |
 
@@ -139,7 +131,7 @@ chmod +x perfbench.py
 ./perfbench.py -s ./examples/test_programs/sample.slurm -t 60 -o /tmp/perfbench_results
 
 # 提交申威作业进行监控
-./perfbench.py -s ./examples/test_programs/sample.sh -t 60 -o /tmp/perfbench_results -sw
+./perfbench.py -s ./examples/test_programs/sample.sh -t 60 -o /tmp/perfbench_results --platform sunway
 
 # 在海光 DCU 集群上提交作业并采集 DCU 指标（10秒采样间隔）
 ./perfbench.py -s ./examples/test_programs/sample.slurm -t 60 -o /tmp/perfbench_results --accelerator dcu --accelerator-interval 10
@@ -245,7 +237,7 @@ PerfBench 通过独立的加速卡监控层支持不同类型的加速器指标�
 两种方式任选其一：
 
 1. **配置文件**：在 `perfbench/platform_config.json` 中设置 `"accelerator_type": "dcu"`
-2. **CLI 参数**：提交时添加 `--accelerator dcu` 或 `--dcu`
+2. **CLI 参数**：提交时添加 `--accelerator dcu`
 
 ### 工作原理
 
@@ -285,14 +277,14 @@ PerfBench 支持天河迈创超算平台的自研调度系统（msub/mqueue/mdel
 
 ### 启用方式
 
-通过 `--tianhe` 参数指定天河平台：
+通过 `--platform tianhe` 参数指定天河平台：
 ```bash
-./perfbench.py -s /path/to/script.sh -t 60 -o /path/to/output --tianhe
+./perfbench.py -s /path/to/script.sh -t 60 -o /path/to/output --platform tianhe
 ```
 
 启用迈创加速卡监控：
 ```bash
-./perfbench.py -s /path/to/script.sh -t 60 -o /path/to/output --tianhe --accelerator matrix
+./perfbench.py -s /path/to/script.sh -t 60 -o /path/to/output --platform tianhe --accelerator matrix
 ```
 
 ### 脚本格式
@@ -406,7 +398,6 @@ perfbench/
 │   │   ├── multi_scale.py     # 多规模自动提交编排器
 │   │   └── before_after.py    # 支撑软件前后对比编排器
 │   ├── analysis/             # 领域分析层
-│   │   ├── log_parser.py     # 日志解析器（Result 类）
 │   │   ├── metrics.py        # 指标计算器（并行度查表/效率，对标规范公式）
 │   │   ├── scalability.py    # 可扩展性计算（强/弱可扩展并行效率）
 │   │   ├── accuracy.py       # 数值模拟精度（绝对误差/相对误差/RMSE）

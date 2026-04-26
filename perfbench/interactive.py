@@ -109,19 +109,16 @@ def get_application_software_config() -> dict:
             continue
     
     # 5. Platform selection
-    platform = questionary.select(
+    platform_label = questionary.select(
         "请选择运行平台:",
         choices=[
             "SLURM集群",
             "神威集群"
         ]
     ).ask()
-    
-    config['platform'] = platform
-    if platform == "神威集群":
-        config['is_sunway'] = True
-    else:
-        config['is_sunway'] = False
+
+    config['platform'] = "sunway" if platform_label == "神威集群" else "slurm"
+    config['platform_label'] = platform_label
     
     # Optional: Compute precision
     # 注：precision 当前仅用于配置摘要展示，尚未接入执行主流程（脚本改写或效率计算）。
@@ -234,19 +231,16 @@ def get_support_software_config() -> dict:
             continue
     
     # 6. Platform selection
-    platform = questionary.select(
+    platform_label = questionary.select(
         "请选择运行平台:",
         choices=[
             "SLURM集群",
             "神威集群"
         ]
     ).ask()
-    
-    config['platform'] = platform
-    if platform == "神威集群":
-        config['is_sunway'] = True
-    else:
-        config['is_sunway'] = False
+
+    config['platform'] = "sunway" if platform_label == "神威集群" else "slurm"
+    config['platform_label'] = platform_label
     
     # Optional: Compute precision
     # 注：precision 当前仅用于配置摘要展示，尚未接入执行主流程（脚本改写或效率计算）。

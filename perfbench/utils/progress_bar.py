@@ -22,14 +22,14 @@ class StepProgress:
         self.current += 1
         if self.current > len(self.steps):
             self.current = len(self.steps)
-        self.show(status)
-    def show(self, status=None):
+        self._show(status)
+    def _show(self, status=None):
         step_text = f"步骤 {self.current}/{len(self.steps)}: {self.steps[self.current-1]}"
         if status:
             step_text += f" | {status}"
         simple_progress_bar(self.current, len(self.steps), step_text)
     def finish(self):
         self.current = len(self.steps)
-        self.show("完成")
+        self._show("完成")
         sys.stdout.write('\n')
         sys.stdout.flush()

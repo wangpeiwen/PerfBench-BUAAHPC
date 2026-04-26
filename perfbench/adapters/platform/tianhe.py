@@ -14,6 +14,7 @@ from typing import Optional
 from perfbench.adapters.platform.base import PlatformAdapter
 from perfbench.adapters.accelerator.base import AcceleratorMonitor
 from perfbench.adapters.accelerator.none import NullMonitor
+from perfbench.adapters.platform.logs import JobLogSummary, PlatformLogParser
 from perfbench.utils.logger import get_logger
 from perfbench.utils.monitoring import (
     generate_monitoring_script,
@@ -21,6 +22,14 @@ from perfbench.utils.monitoring import (
 )
 
 logger = get_logger()
+
+
+class TianheLogParser(PlatformLogParser):
+    """天河调度日志解析占位实现。"""
+
+    def parse_job_logs(self, out_dir: str, interval: int = 0) -> JobLogSummary:
+        logger.warning("天河调度日志解析尚未实现")
+        return JobLogSummary()
 
 
 class TianheAdapter(PlatformAdapter):
@@ -154,22 +163,9 @@ class TianheAdapter(PlatformAdapter):
                         return state
 
             except FileNotFoundError:
-                logger.warning("[Tianhe] mqueue 命令未找到，尝试回退到 sacct")
-                # 天河兼容层：尝试 sacct
-                try:
-                    result = subprocess.run(
-                        ['sacct', '-j', jobid, '-n', '-o', 'State', '-P'],
-                        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                        text=True
-                    )
-                    state = (result.stdout.strip().split('\n')[0]
-                             if result.stdout.strip() else '')
-                    if any(s in state for s in terminal_states):
-                        logger.info(
-                            f"[Tianhe] 作业 {jobid} 已结束（sacct），状态: {state}")
-                        return state
-                except Exception:
-                    pass
+                raise RuntimeError(
+                    "mqueue 命令未找到，请确保在天河迈创集群登录节点上运行"
+                )
             except Exception as e:
                 logger.warning(f"[Tianhe] 查询作业状态时出错: {e}")
 
@@ -182,3 +178,7 @@ class TianheAdapter(PlatformAdapter):
     def get_log_cmd_name(self) -> str:
         """返回天河平台日志解析使用的命令名称。"""
         return "mqueue"
+
+    def get_log_parser(self) -> TianheLogParser:
+        """返回天河平台调度日志解析器。"""
+        return TianheLogParser()

@@ -12,8 +12,6 @@
     强可扩展并行效率 = (T_M × M) / (T_N × N) × 100%
     其中 M = compared_cores（基准核数），T_M = compared_run_time（基准时间）
          N = core_num（当前核数），T_N = elapsed_time（当前时间）
-
-向后兼容：接口签名与返回格式不变。
 """
 
 import json

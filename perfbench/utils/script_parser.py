@@ -97,16 +97,20 @@ def _parse_bsub_line(line, info):
 
     patterns = {
         'job_name': r'-J\s+(\S+)',
+        'nodes': r'-N\s+(\d+)',
         'num_processes': r'-n\s+(\d+)',
+        'tasks_per_node': r'-np\s+(\d+)',
         'queue': r'-q\s+(\S+)',
+        'time_limit': r'-timelimit\s+(\S+)',
         'output': r'-o\s+(\S+)',
+        'error': r'-e\s+(\S+)',
     }
 
     for key, pattern in patterns.items():
         match = re.search(pattern, bsub_args)
         if match:
             value = match.group(1)
-            if key == 'num_processes':
+            if key in ('nodes', 'num_processes', 'tasks_per_node'):
                 value = int(value)
             info[key] = value
 

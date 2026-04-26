@@ -3,9 +3,8 @@
 """
 海光 DCU (hy-smi) 加速卡监控器。
 
-从原 monitoring.py 的 _generate_dcu_sampler_block() 和
-log_parser.py 的 parse_hysmi() / get_dcu_summary() 迁移而来，
-使 DCU 监控逻辑与 SLURM 调度平台解耦。
+封装 DCU 采样脚本生成、hy-smi 日志解析和摘要计算，使加速卡监控逻辑
+与调度平台解耦。
 """
 
 import os

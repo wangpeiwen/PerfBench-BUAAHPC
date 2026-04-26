@@ -3,8 +3,7 @@
 """
 SLURM 平台适配器。
 
-将原散落在 script_processor.py 和 monitoring.py 中的 SLURM 相关逻辑
-收拢到此单一适配器，消除主流程中的 if is_sunway 分支。
+封装 SLURM 作业脚本准备、提交、监控、等待和日志解析入口。
 """
 
 import os
@@ -14,6 +13,7 @@ from typing import Optional
 from perfbench.adapters.platform.base import PlatformAdapter
 from perfbench.adapters.accelerator.base import AcceleratorMonitor
 from perfbench.adapters.accelerator.none import NullMonitor
+from perfbench.adapters.platform.slurm_logs import SlurmLogParser
 from perfbench.utils.logger import get_logger
 from perfbench.utils.monitoring import (
     generate_monitoring_script,
@@ -130,6 +130,10 @@ class SlurmAdapter(PlatformAdapter):
     def get_log_cmd_name(self) -> str:
         """返回 SLURM 平台日志解析使用的命令名称。"""
         return "sacct"
+
+    def get_log_parser(self) -> SlurmLogParser:
+        """返回 SLURM 平台调度日志解析器。"""
+        return SlurmLogParser()
 
     def capture_final_logs(self, jobid: str, output_dir: str) -> None:
         """

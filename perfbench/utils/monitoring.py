@@ -217,22 +217,28 @@ while true; do
     ts=$(date +%Y%m%d_%H%M%S)
 
     # bjobs 作业状态（用于最终结果解析）
-    bjobs -l $JOBID > "$OUTDIR/bjobs_$ts.log" 2>&1 || true
+    {{
+        echo "### bjobs -w $JOBID"
+        bjobs -w "$JOBID"
+        echo
+        echo "### bjobs -l $JOBID"
+        bjobs -l "$JOBID"
+    }} > "$OUTDIR/bjobs_$ts.log" 2>&1 || true
 
-    # cnload 主核负载和内存
-    NODE_LIST=$(bjobs -l "$JOBID" | grep -Po 'nodeid: \\K\\d+' | tr '\\n' ',' | sed 's/,$//')
-    cnload -c "$NODE_LIST" | awk '
-      /^CPU/ {{printf "%-6s %-8s Load:%-5s Mem:%s\\n", $1, $2, $3, $4}}
-      /Total/ {{print "主核总量: "$2" 使用率: "$3}}
-    ' >> "$OUTDIR/cnload_$ts.log" 2>&1 || true
+    state=$(awk '!/^(###|JOBID|---)/ && NF>1 && $1 ~ /^[0-9]+$/ {{print $2; exit}}' \\
+        "$OUTDIR/bjobs_$ts.log")
 
-    # 从核位图采集
-    cnload -b -j "$JOBID" > "$OUTDIR/cnload_bitmap_$ts.log" 2>&1 || true
-    grep 'SPE[0-9]' "$OUTDIR/cnload_bitmap_$ts.log" \\
-        >> "$OUTDIR/cnload_bitmap_filtered_$ts.log" 2>&1 || true
+    if [[ "$state" == "RUN" ]]; then
+        # cnload 仅在作业已运行并分配节点后可用
+        cnload -j "$JOBID" > "$OUTDIR/cnload_$ts.log" 2>&1 || true
+
+        # 从核位图采集
+        cnload -b -j "$JOBID" > "$OUTDIR/cnload_bitmap_$ts.log" 2>&1 || true
+        grep 'SPE[0-9]' "$OUTDIR/cnload_bitmap_$ts.log" \\
+            >> "$OUTDIR/cnload_bitmap_filtered_$ts.log" 2>&1 || true
+    fi
 
     # 检查作业是否已进入终态
-    state=$(bjobs $JOBID 2>/dev/null | awk '!/^(JOBID|---)/ && NF>1 {{print $2; exit}}')
     if [[ "$state" == "DONE" || "$state" == "EXIT" || \\
           "$state" == "CANCELED" || "$state" == "TERM" ]]; then
         echo "Job $JOBID finished with state $state at $ts" \\

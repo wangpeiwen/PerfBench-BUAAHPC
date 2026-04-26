@@ -83,13 +83,6 @@
       "method_latex_board": "node\\_num \\times 4",
       "method_latex_core": "node\\_num \\times 216",
       "note": "4卡/节点, 6912/32 warp, Tensor core不计"
-    },
-    "Tesla As100": {
-      "boards_per_node": 4,
-      "cores_per_node": 216,
-      "method_latex_board": "node\\_num \\times 4",
-      "method_latex_core": "node\\_num \\times 216",
-      "note": "兼容旧名称"
     }
   },
   "granularity_options": {

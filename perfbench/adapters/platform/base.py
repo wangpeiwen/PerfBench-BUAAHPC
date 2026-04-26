@@ -8,6 +8,7 @@
 """
 
 from abc import ABC, abstractmethod
+from perfbench.adapters.platform.logs import PlatformLogParser
 from perfbench.utils.script_parser import parse_slurm_script
 
 
@@ -21,6 +22,7 @@ class PlatformAdapter(ABC):
     - start_monitoring: 在登录节点启动后台监控脚本
     - wait_for_job:   轮询直到作业终止，返回最终状态字符串
     - get_log_cmd_name: 返回本平台日志解析所用的命令名称（sacct/bjobs）
+    - get_log_parser: 返回本平台调度日志解析器
     """
 
     @abstractmethod
@@ -88,6 +90,15 @@ class PlatformAdapter(ABC):
 
         Returns:
             str: 命令名，如 "sacct" 或 "bjobs"
+        """
+
+    @abstractmethod
+    def get_log_parser(self) -> PlatformLogParser:
+        """
+        返回本平台调度日志解析器。
+
+        Returns:
+            PlatformLogParser: 解析本平台监控日志的对象
         """
 
     def parse_script(self, script_path: str) -> dict:

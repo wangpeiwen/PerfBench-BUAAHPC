@@ -3,8 +3,7 @@
 """
 申威（Sunway）平台适配器。
 
-将原散落在 script_processor.py 和 monitoring.py 中的申威相关逻辑
-收拢到此单一适配器，消除主流程中的 if is_sunway 分支。
+封装申威作业脚本解析、提交、监控、等待和日志解析入口。
 """
 
 import os
@@ -12,6 +11,7 @@ import re
 import subprocess
 import time
 from perfbench.adapters.platform.base import PlatformAdapter
+from perfbench.adapters.platform.sunway_logs import SunwayLogParser
 from perfbench.utils.logger import get_logger
 from perfbench.utils.monitoring import start_bjob_monitoring_on_login
 from perfbench.utils.script_parser import parse_sunway_script
@@ -149,3 +149,7 @@ class SunwayAdapter(PlatformAdapter):
     def get_log_cmd_name(self) -> str:
         """返回申威平台日志解析使用的命令名称。"""
         return "bjobs"
+
+    def get_log_parser(self) -> SunwayLogParser:
+        """返回申威平台调度日志解析器。"""
+        return SunwayLogParser()
