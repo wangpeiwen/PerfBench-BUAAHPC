@@ -13,7 +13,7 @@
     在作业提交后于登录节点启动后台 shell 监控脚本，
     周期性采集调度系统状态并写入日志文件。
     相关函数：start_monitoring_on_login()（SLURM）
-              start_bjob_monitoring_on_login()（申威）
+              start_lsf_monitoring_on_login()（LSF）
 
 后续若需替换监控方式或替换脚本注入方式，可按此分区独立修改，
 不会影响另一类职责。
@@ -181,10 +181,10 @@ done
     return p.pid
 
 
-def start_bjob_monitoring_on_login(jobid: str, interval: int,
-                                    output_dir: str) -> int:
+def start_lsf_monitoring_on_login(jobid: str, interval: int,
+                                  output_dir: str) -> int:
     """
-    在登录节点启动申威（Sunway）后台监控脚本。
+    在登录节点启动 LSF 后台监控脚本。
 
     生成的 shell 脚本（monitor_login_sw.sh）周期性执行：
         bjobs   - 作业状态（用于最终结果解析）
@@ -202,11 +202,11 @@ def start_bjob_monitoring_on_login(jobid: str, interval: int,
         int: 监控进程 PID
     """
     os.makedirs(output_dir, exist_ok=True)
-    monitor_sh = os.path.join(output_dir, 'monitor_login_sw.sh')
-    monitor_pid_file = os.path.join(output_dir, 'monitor_login_sw.pid')
+    monitor_sh = os.path.join(output_dir, 'monitor_login_lsf.sh')
+    monitor_pid_file = os.path.join(output_dir, 'monitor_login_lsf.pid')
 
     script = f"""#!/bin/bash
-# PerfBench login-node monitoring for Sunway job {jobid}
+# PerfBench login-node monitoring for LSF job {jobid}
 JOBID={jobid}
 INTERVAL={interval}
 OUTDIR={output_dir}
@@ -261,6 +261,6 @@ done
         f.write(str(p.pid))
 
     logger.info(
-        f"[Sunway] 登录节点申威监控脚本已启动 (pid={p.pid})，输出目录: {output_dir}"
+        f"[LSF] 登录节点监控脚本已启动 (pid={p.pid})，输出目录: {output_dir}"
     )
     return p.pid

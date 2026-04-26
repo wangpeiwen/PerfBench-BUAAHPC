@@ -28,7 +28,7 @@ from perfbench.utils.logger import setup_logging
 from perfbench.utils.progress_bar import StepProgress
 
 
-PLATFORM_CHOICES = ("slurm", "sunway", "tianhe")
+PLATFORM_CHOICES = ("slurm", "lsf", "tianhe")
 ACCELERATOR_CHOICES = ("dcu", "matrix", "none")
 
 

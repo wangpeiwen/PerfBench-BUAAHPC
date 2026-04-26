@@ -1,10 +1,10 @@
 # PerfBench - 超算集群性能基准测试工具
 
-PerfBench是一款轻量级的性能基准测试工具，专为SLURM和申威等超算集群设计。它能自动化地处理作业脚本、收集系统性能数据、计算并行度效率，并生成性能评估报告。
+PerfBench是一款轻量级的性能基准测试工具，专为SLURM、LSF等超算调度环境设计。它能自动化地处理作业脚本、收集系统性能数据、计算并行度效率，并生成性能评估报告。
 
 ## 特性
 
-- 🔄 **自动化脚本处理**：解析SLURM（`#SBATCH`）和申威（`bsub` 命令行）作业脚本，自动注入性能监控代码
+- 🔄 **自动化脚本处理**：解析SLURM（`#SBATCH`）和LSF（`bsub` 命令行）作业脚本，自动注入性能监控代码
 - 📊 **全面的性能监控**：收集CPU、内存、DCU/GPU等资源使用数据
 - 🏗️ **多架构支持**：支持x86_64、aarch64、海光DCU等多种处理器/加速器架构
 - 🔍 **性能分析**：计算并行度、运行效率等关键性能指标
@@ -15,7 +15,7 @@ PerfBench是一款轻量级的性能基准测试工具，专为SLURM和申威等
 ## 系统要求
 
 - Python 3.6+
-- SLURM 或申威集群管理系统
+- SLURM、LSF 或天河调度系统
 - 海光 DCU 监控需要计算节点上可用 `hy-smi` 或 `rocm-smi` 命令
 - SLURM 20.11+（DCU 多节点采集依赖 `srun --overlap`）
 - 运行权限：需在集群登录节点上执行
@@ -77,9 +77,9 @@ chmod +x perfbench.py
 ./perfbench.py -s /path/to/script.slurm -t 60 -o /path/to/output
 ```
 
-对于申威平台，使用 `--platform sunway`（脚本为 csh/bash wrapper，内部自行调用 `bsub`）：
+对于 LSF 平台，使用 `--platform lsf`（脚本为 csh/bash wrapper，内部自行调用 `bsub`）：
 ```bash
-./perfbench.py -s /path/to/submit_script.csh -t 60 -o /path/to/output --platform sunway
+./perfbench.py -s /path/to/submit_script.csh -t 60 -o /path/to/output --platform lsf
 ```
 
 #### 5. 启用加速卡监控
@@ -106,10 +106,10 @@ chmod +x perfbench.py
 |------|------|------|------|
 | `-init` | - | 初始化工具环境，安装依赖库 | `./perfbench.py -init` |
 | `-v` | - | 运行工具适配性测试 | `./perfbench.py -v` |
-| `-s, --script` | - | 指定SLURM/申威作业脚本路径 | `-s script.slurm/script.sh` |
+| `-s, --script` | - | 指定SLURM/LSF作业脚本路径 | `-s script.slurm/script.sh` |
 | `-t, --interval` | - | 设置性能数据采集间隔（秒，必需） | `-t 60` |
 | `-o, --output` | - | 指定输出目录路径（必需） | `-o /tmp/output` |
-| `--platform` | - | 调度平台类型（`slurm` / `sunway` / `tianhe`） | `--platform sunway` |
+| `--platform` | - | 调度平台类型（`slurm` / `lsf` / `tianhe`） | `--platform lsf` |
 | `--accelerator` | - | 加速卡类型（`dcu` / `matrix` / `none`），覆盖配置文件 | `--accelerator dcu` |
 | `--accelerator-interval` | - | 加速卡采样间隔（秒），默认使用 `-t` 值 | `--accelerator-interval 10` |
 | `--config` | - | 测试配置文件路径（.yaml/.json），启用多规模/支撑软件评测 | `--config test.yaml` |
@@ -130,8 +130,8 @@ chmod +x perfbench.py
 # 提交SLURM作业进行监控（60秒采集间隔）
 ./perfbench.py -s ./examples/test_programs/sample.slurm -t 60 -o /tmp/perfbench_results
 
-# 提交申威作业进行监控
-./perfbench.py -s ./examples/test_programs/sample.sh -t 60 -o /tmp/perfbench_results --platform sunway
+# 提交 LSF 作业进行监控
+./perfbench.py -s ./examples/test_programs/sample.sh -t 60 -o /tmp/perfbench_results --platform lsf
 
 # 在海光 DCU 集群上提交作业并采集 DCU 指标（10秒采样间隔）
 ./perfbench.py -s ./examples/test_programs/sample.slurm -t 60 -o /tmp/perfbench_results --accelerator dcu --accelerator-interval 10
@@ -193,7 +193,7 @@ chmod +x perfbench.py
            ▼
 ┌─────────────────────────┐
 │   提交监控作业          │
-│ (sbatch/申威提交)       │
+│ (sbatch/bsub提交)       │
 └──────────┬──────────────┘
            │
            ▼
@@ -230,7 +230,7 @@ chmod +x perfbench.py
 
 ## 加速卡监控说明
 
-PerfBench 通过独立的加速卡监控层支持不同类型的加速器指标采集，当前已实现海光 DCU（`hy-smi`）。加速卡监控与调度平台（SLURM / 申威）完全解耦，可自由组合。
+PerfBench 通过独立的加速卡监控层支持不同类型的加速器指标采集，当前已实现海光 DCU（`hy-smi`）。加速卡监控与调度平台（SLURM / LSF / 天河）完全解耦，可自由组合。
 
 ### 启用方式
 
@@ -332,7 +332,7 @@ mpirun ./my_app
 ### 问题：脚本解析失败
 **解决方案**：
 - SLURM 脚本：检查是否包含标准 `#SBATCH` 指令（`--job-name`, `--nodes` 等）
-- 申威脚本：确保脚本中有未注释的 `bsub` 命令行，工具从中提取 `-J`（作业名）、`-n`（进程数）等参数
+- LSF 脚本：确保脚本中有未注释的 `bsub` 命令行，工具从中提取 `-J`（作业名）、`-n`（进程数）等参数
 - 查看详细日志：`perfbench.log`
 
 ### 问题：监控数据不完整
@@ -383,7 +383,7 @@ perfbench/
 │   │   ├── platform/         # 平台适配层
 │   │   │   ├── base.py       # 抽象基类 PlatformAdapter
 │   │   │   ├── slurm.py      # SLURM 平台适配器
-│   │   │   ├── sunway.py     # 申威平台适配器
+│   │   │   ├── lsf.py        # LSF 平台适配器
 │   │   │   └── tianhe.py     # 天河迈创平台适配器（msub/mqueue/mdel）
 │   │   └── accelerator/      # 加速卡监控层
 │   │       ├── base.py       # 抽象基类 AcceleratorMonitor
@@ -406,7 +406,7 @@ perfbench/
 │   └── utils/                # 工具函数
 │       ├── logger.py         # 日志管理
 │       ├── monitoring.py     # 脚本准备器 + 监控执行器
-│       ├── script_parser.py   # 脚本解析器（SLURM #SBATCH / 申威 bsub 命令行）
+│       ├── script_parser.py   # 脚本解析器（SLURM #SBATCH / LSF bsub 命令行）
 │       └── system_checker.py # 系统环境检查
 ```
 

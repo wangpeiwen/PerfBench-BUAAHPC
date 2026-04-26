@@ -3,7 +3,7 @@
 """
 加速卡监控抽象基类。
 
-将加速卡（DCU / GPU / NPU 等）的监控逻辑从调度平台（SLURM / Sunway）中解耦，
+将加速卡（DCU / GPU / NPU 等）的监控逻辑从调度平台（SLURM / LSF / Tianhe）中解耦，
 使两个维度可以自由组合：SLURM+DCU、SLURM+GPU、SLURM+无卡 等。
 """
 

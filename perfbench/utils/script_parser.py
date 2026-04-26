@@ -42,11 +42,11 @@ def parse_slurm_script(script_path):
         
     return info
 
-def parse_sunway_script(script_path):
+def parse_lsf_script(script_path):
     """
-    解析申威（Sunway）平台 csh/bash wrapper 脚本，从 bsub 命令行提取关键信息。
+    解析 LSF csh/bash wrapper 脚本，从 bsub 命令行提取关键信息。
 
-    申威脚本典型格式：
+    典型格式：
         setenv SUBSTAT "`bsub -p -b -o log -q q_share -J job_name -n 4374 -cgsp 64 ...`"
     """
     info = {
@@ -77,7 +77,7 @@ def parse_sunway_script(script_path):
                 break
 
     except Exception as e:
-        logger.error(f"解析申威脚本失败: {str(e)}")
+        logger.error(f"解析 LSF wrapper 脚本失败: {str(e)}")
         return None
 
     return info

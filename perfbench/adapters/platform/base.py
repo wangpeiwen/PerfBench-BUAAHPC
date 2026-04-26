@@ -3,7 +3,7 @@
 """
 平台适配层抽象基类。
 
-定义所有平台（SLURM、申威等）必须实现的接口，
+定义所有调度平台（SLURM、LSF、天河等）必须实现的接口，
 使主流程只面向此接口，而不依赖具体平台的命令细节。
 """
 
@@ -105,7 +105,7 @@ class PlatformAdapter(ABC):
         """
         解析作业脚本，提取 job_name / nodes 等信息。
 
-        默认使用 SLURM 解析器，申威等平台可覆盖此方法。
+        默认使用 SLURM 解析器，其他调度平台可覆盖此方法。
         """
         return parse_slurm_script(script_path)
 

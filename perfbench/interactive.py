@@ -46,7 +46,7 @@ def get_application_software_config() -> dict:
     2. 监控信息输出目录 (Monitoring output directory)
     3. 监控粒度(间隔时间) (Monitoring interval in seconds)
     4. 原始作业提交脚本目录 (Original job submission script path)
-    5. 运行平台 (Running platform: Sunway/SLURM)
+    5. 运行平台 (Running platform: LSF/SLURM)
     """
     config = {}
     
@@ -113,11 +113,11 @@ def get_application_software_config() -> dict:
         "请选择运行平台:",
         choices=[
             "SLURM集群",
-            "神威集群"
+            "LSF集群"
         ]
     ).ask()
 
-    config['platform'] = "sunway" if platform_label == "神威集群" else "slurm"
+    config['platform'] = "lsf" if platform_label == "LSF集群" else "slurm"
     config['platform_label'] = platform_label
     
     # Optional: Compute precision
@@ -162,7 +162,7 @@ def get_support_software_config() -> dict:
     3. 监控粒度(间隔时间) (Monitoring interval in seconds)
     4. 待测支撑软件激活命令 (Software activation command)
     5. benchmark作业提交脚本绝对路径 (Benchmark job script path)
-    6. 运行平台 (Running platform: Sunway/SLURM)
+    6. 运行平台 (Running platform: LSF/SLURM)
     """
     config = {}
     
@@ -235,11 +235,11 @@ def get_support_software_config() -> dict:
         "请选择运行平台:",
         choices=[
             "SLURM集群",
-            "神威集群"
+            "LSF集群"
         ]
     ).ask()
 
-    config['platform'] = "sunway" if platform_label == "神威集群" else "slurm"
+    config['platform'] = "lsf" if platform_label == "LSF集群" else "slurm"
     config['platform_label'] = platform_label
     
     # Optional: Compute precision

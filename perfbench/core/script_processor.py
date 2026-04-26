@@ -37,14 +37,14 @@ def run_evaluation(script_path: str, interval: int, output_dir: str,
         script_path:      原始脚本路径
         interval:         监控采集间隔（秒）
         output_dir:       用户指定的基础输出目录
-        platform_adapter: 平台适配器实例（SlurmAdapter 或 SunwayAdapter）
+        platform_adapter: 平台适配器实例（如 SlurmAdapter / LsfAdapter）
 
     Returns:
         tuple[str, dict]: (job_dir, script_info)
             - job_dir:     本次作业实际输出目录（含时间戳子目录）
             - script_info: 脚本解析信息字典
     """
-    # 1. 解析脚本（委托给平台适配器，申威/SLURM 各有专用解析器）
+    # 1. 解析脚本（委托给平台适配器，SLURM/LSF 各有专用解析器）
     script_info = platform_adapter.parse_script(script_path)
     if script_info is None:
         raise RuntimeError(f"无法解析作业脚本: {script_path}")
@@ -56,7 +56,7 @@ def run_evaluation(script_path: str, interval: int, output_dir: str,
     # 2. 创建输出目录
     job_dir = _create_output_dir(output_dir, script_info)
 
-    # 3. 准备脚本（平台相关：SLURM 注入 echo，申威直接使用原脚本）
+    # 3. 准备脚本（平台相关：SLURM 注入 echo，LSF 直接使用原 wrapper）
     prepared_script = platform_adapter.prepare_script(
         script_path, script_info, interval, job_dir
     )

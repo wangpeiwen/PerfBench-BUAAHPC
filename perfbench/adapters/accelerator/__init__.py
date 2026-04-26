@@ -4,7 +4,7 @@
 加速卡监控层包入口。
 
 提供工厂函数 get_accelerator_monitor()，根据配置返回对应的加速卡监控器实例。
-调度平台（SLURM / Sunway）通过组合方式持有监控器，两个维度完全正交。
+调度平台（SLURM / LSF / Tianhe）通过组合方式持有监控器，两个维度完全正交。
 """
 
 from typing import Optional
