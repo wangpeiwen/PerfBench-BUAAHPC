@@ -48,7 +48,7 @@ def parse_arguments() -> argparse.ArgumentParser:
         type=str,
         default=None,
         choices=ACCELERATOR_CHOICES,
-        help="加速卡类型（覆盖 platform_config.json）",
+        help="加速卡类型（仅在显式指定时启用采样）",
     )
     parser.add_argument(
         "--accelerator-interval",
@@ -100,6 +100,8 @@ def main() -> None:
 
     if args.script and (not args.interval or not args.output):
         parser.error("--script 模式必须同时指定 --interval 和 --output")
+    if args.accelerator_interval is not None and args.accelerator is None:
+        parser.error("--accelerator-interval 必须和 --accelerator 一起使用")
 
     logger = setup_logging()
 
@@ -142,12 +144,16 @@ def main() -> None:
                 platform=args.platform,
                 progress=progress,
                 logger=logger,
-                accelerator_override=args.accelerator,
-                accelerator_interval_override=args.accelerator_interval,
+                accelerator_type=args.accelerator,
+                accelerator_interval=args.accelerator_interval,
                 overhead_mode=args.overhead,
             )
             _generate_report(
-                logger, job_dir, script_info, args.interval, args.platform
+                logger, job_dir, script_info, args.interval, args.platform,
+                _build_accelerator_config(
+                    accelerator_type=args.accelerator,
+                    accelerator_interval=args.accelerator_interval,
+                ),
             )
             progress.finish()
             return
@@ -207,17 +213,19 @@ def _run_config_mode(args, logger) -> None:
     os.makedirs(output_dir, exist_ok=True)
 
     platform_config = get_platform_config()
-    accel_config = _build_accelerator_config(
-        platform_config,
-        accelerator_override=args.accelerator,
-        accelerator_interval_override=args.accelerator_interval,
+    accelerator_config = _build_accelerator_config(
+        accelerator_type=args.accelerator,
+        accelerator_interval=args.accelerator_interval,
     )
-    accel_monitor = get_accelerator_monitor(accel_config)
+    report_platform_config = _build_report_platform_config(
+        platform_config, accelerator_config
+    )
+    accel_monitor = get_accelerator_monitor(accelerator_config)
     adapter = get_platform_adapter(
         args.platform, accelerator_monitor=accel_monitor
     )
 
-    plan_path = generate_test_plan(config, platform_config, output_dir)
+    plan_path = generate_test_plan(config, report_platform_config, output_dir)
     logger.info(f"测试计划已生成: {plan_path}")
 
     support_enabled = config.get("support", {}).get("enabled", False)
@@ -231,7 +239,7 @@ def _run_config_mode(args, logger) -> None:
     result = orchestrator.run()
 
     md_path, json_path = generate_full_report(
-        config, platform_config, result, output_dir,
+        config, report_platform_config, result, output_dir,
         is_support=support_enabled,
     )
     logger.info(f"完整报告已生成: {md_path}, {json_path}")
@@ -260,17 +268,15 @@ def _log_config_mode_summary(logger, result: dict, support_enabled: bool) -> Non
 
 def _run_evaluation(script_path: str, interval: int, output_dir: str,
                     platform: str, progress, logger,
-                    accelerator_override: Optional[str] = None,
-                    accelerator_interval_override: Optional[int] = None,
+                    accelerator_type: Optional[str] = None,
+                    accelerator_interval: Optional[int] = None,
                     overhead_mode: bool = False):
-    platform_config = get_platform_config()
-    accel_config = _build_accelerator_config(
-        platform_config,
-        accelerator_override=accelerator_override,
-        accelerator_interval_override=accelerator_interval_override,
+    accelerator_config = _build_accelerator_config(
+        accelerator_type=accelerator_type,
+        accelerator_interval=accelerator_interval,
     )
 
-    accel_monitor = get_accelerator_monitor(accel_config)
+    accel_monitor = get_accelerator_monitor(accelerator_config)
     adapter = get_platform_adapter(platform, accelerator_monitor=accel_monitor)
     job_dir, script_info = run_evaluation(
         script_path, interval, output_dir, adapter, progress,
@@ -283,22 +289,30 @@ def _run_evaluation(script_path: str, interval: int, output_dir: str,
     return job_dir, script_info
 
 
-def _build_accelerator_config(platform_config: Optional[dict],
-                              accelerator_override: Optional[str] = None,
-                              accelerator_interval_override: Optional[int] = None
+def _build_accelerator_config(accelerator_type: Optional[str] = None,
+                              accelerator_interval: Optional[int] = None
                               ) -> dict:
-    accel_config = dict(platform_config) if platform_config else {}
-    if accelerator_override is not None:
-        accel_config["accelerator_type"] = accelerator_override
-    if accelerator_interval_override is not None:
-        accel_config["accelerator_sampling_interval"] = (
-            accelerator_interval_override
-        )
-    return accel_config
+    accelerator_config = {"accelerator_type": accelerator_type or "none"}
+    if accelerator_interval is not None:
+        accelerator_config["accelerator_sampling_interval"] = accelerator_interval
+    return accelerator_config
+
+
+def _build_report_platform_config(platform_config: Optional[dict],
+                                  accelerator_config: dict) -> Optional[dict]:
+    if platform_config is None:
+        return None
+
+    report_config = dict(platform_config)
+    report_config["accelerator_type"] = accelerator_config.get(
+        "accelerator_type", "none"
+    )
+    return report_config
 
 
 def _generate_report(logger, job_dir: str, script_info: dict,
-                     interval: int, platform: str) -> None:
+                     interval: int, platform: str,
+                     accelerator_config: Optional[dict] = None) -> None:
     platform_config = get_platform_config()
     if platform_config is None:
         logger.error("读取平台配置失败")
@@ -336,7 +350,10 @@ def _generate_report(logger, job_dir: str, script_info: dict,
         "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
 
-    _attach_accelerator_summary(logger, job_dir, platform_config, report_info)
+    _attach_accelerator_summary(
+        logger, job_dir, accelerator_config or {"accelerator_type": "none"},
+        report_info,
+    )
 
     logger.info(f"证书生成信息: {report_info}")
     try:
@@ -348,9 +365,9 @@ def _generate_report(logger, job_dir: str, script_info: dict,
 
 
 def _attach_accelerator_summary(logger, job_dir: str,
-                                platform_config: dict,
+                                accelerator_config: dict,
                                 report_info: dict) -> None:
-    accel_monitor = get_accelerator_monitor(platform_config)
+    accel_monitor = get_accelerator_monitor(accelerator_config)
     log_subdir = accel_monitor.get_log_subdir()
     if not log_subdir or not os.path.isdir(os.path.join(job_dir, log_subdir)):
         return

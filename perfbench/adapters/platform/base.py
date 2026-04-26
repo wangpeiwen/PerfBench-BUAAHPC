@@ -10,7 +10,6 @@
 import os
 from abc import ABC, abstractmethod
 from perfbench.adapters.platform.logs import PlatformLogParser
-from perfbench.utils.script_parser import parse_slurm_script
 
 
 def write_instrumented_batch_script(
@@ -71,7 +70,7 @@ class PlatformAdapter(ABC):
 
         Args:
             script_path: 原始脚本路径
-            script_info: parse_slurm_script() 返回的脚本信息字典
+            script_info: parse_script() 返回的脚本信息字典
             interval:    监控采集间隔（秒）
             output_dir:  本次作业的输出目录
 
@@ -139,13 +138,13 @@ class PlatformAdapter(ABC):
             PlatformLogParser: 解析本平台监控日志的对象
         """
 
+    @abstractmethod
     def parse_script(self, script_path: str) -> dict:
         """
         解析作业脚本，提取 job_name / nodes 等信息。
 
-        默认使用 SLURM 解析器，其他调度平台可覆盖此方法。
+        具体解析规则由各平台适配器实现。
         """
-        return parse_slurm_script(script_path)
 
     def capture_final_logs(self, jobid: str, output_dir: str) -> None:
         """

@@ -92,7 +92,6 @@ chmod +x perfbench.py
 ./perfbench.py -s /path/to/script.slurm -t 60 -o /path/to/output --accelerator dcu --accelerator-interval 10
 ```
 
-> 如果 `platform_config.json` 中已设置 `"accelerator_type": "dcu"`，则无需 `--accelerator` 参数，工具会自动启用。
 
 #### 6. 显示版本信息
 ```bash
@@ -235,7 +234,6 @@ PerfBench 通过独立的加速卡监控层支持不同类型的加速器指标�
 
 两种方式任选其一：
 
-1. **配置文件**：在 `perfbench/platform_config.json` 中设置 `"accelerator_type": "dcu"`
 2. **CLI 参数**：提交时添加 `--accelerator dcu`
 
 ### 工作原理
@@ -258,17 +256,12 @@ PerfBench 通过独立的加速卡监控层支持不同类型的加速器指标�
 
 ### 配置项
 
-`platform_config.json` 中的加速卡相关字段：
 
 ```json
 {
-    "accelerator_type": "dcu",
-    "accelerator_sampling_interval": null
 }
 ```
 
-- `accelerator_type`：加速卡类型，可选 `"dcu"` / `"matrix"` / `"none"`（不启用）
-- `accelerator_sampling_interval`：加速卡采样间隔（秒），为 `null` 时使用全局 `-t` 参数值
 
 ## 天河迈创平台支持
 
@@ -404,7 +397,6 @@ perfbench/
 │   │   └── config_reader.py  # 平台配置读取器
 │   └── utils/                # 工具函数
 │       ├── logger.py         # 日志管理
-│       ├── script_parser.py   # 脚本解析器（SLURM #SBATCH / LSF bsub 命令行）
 │       └── system_checker.py # 系统环境检查
 ```
 

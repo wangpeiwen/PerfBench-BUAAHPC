@@ -8,6 +8,7 @@
 """
 
 import os
+import re
 import subprocess
 import time
 from typing import Optional
@@ -21,6 +22,63 @@ from perfbench.adapters.platform.logs import JobLogSummary, PlatformLogParser
 from perfbench.utils.logger import get_logger
 
 logger = get_logger()
+
+
+def parse_tianhe_script(script_path: str) -> dict:
+    info = {
+        'job_name': None,
+        'nodes': 1,
+        'tasks_per_node': 1,
+        'cpus_per_task': 1,
+        'num_processes': None,
+        'queue': None,
+        'time_limit': None,
+        'partition': None,
+        'output': None,
+        'error': None,
+        'commands': [],
+    }
+
+    try:
+        with open(script_path, 'r', encoding='utf-8') as handle:
+            lines = handle.readlines()
+
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith('#MSUB'):
+                _parse_msub_directive(stripped, info)
+            elif stripped and not stripped.startswith('#'):
+                info['commands'].append(stripped)
+    except Exception as exc:
+        logger.error(f"解析天河 msub 脚本失败: {exc}")
+        return None
+
+    return info
+
+
+def _parse_msub_directive(line: str, info: dict) -> None:
+    line = line.replace('#MSUB', '').strip()
+    patterns = {
+        'job_name': r'-J[= ](\S+)',
+        'nodes': r'-N[= ](\d+)',
+        'num_processes': r'-n[= ](\d+)',
+        'cpus_per_task': r'-c[= ](\d+)',
+        'queue': r'-q[= ](\S+)',
+        'time_limit': r'(?:-t|-l\s+walltime=)[= ]?(\S+)',
+        'output': r'-o[= ](\S+)',
+        'error': r'-e[= ](\S+)',
+    }
+
+    for key, pattern in patterns.items():
+        match = re.search(pattern, line)
+        if match:
+            value = match.group(1)
+            if key in ('nodes', 'num_processes', 'cpus_per_task'):
+                value = int(value)
+            info[key] = value
+
+    if info.get('queue'):
+        info['partition'] = info['queue']
 
 
 def _start_login_monitor(jobid: str, interval: int, output_dir: str) -> int:
@@ -92,6 +150,9 @@ class TianheAdapter(PlatformAdapter):
             accelerator_monitor: 加速卡监控器实例，为 None 时使用 NullMonitor
         """
         self.accelerator_monitor = accelerator_monitor or NullMonitor()
+
+    def parse_script(self, script_path: str) -> dict:
+        return parse_tianhe_script(script_path)
 
     # ------------------------------------------------------------------
     # 脚本准备（提交前逻辑）

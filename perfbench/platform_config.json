@@ -1,7 +1,5 @@
 {
     "platform_name": "DCU Z100",
     "compared_cores": 5,
-    "compared_run_time": 60,
-    "accelerator_type": "dcu",
-    "accelerator_sampling_interval": null
+    "compared_run_time": 60
 }

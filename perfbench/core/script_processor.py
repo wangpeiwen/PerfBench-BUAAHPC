@@ -44,7 +44,7 @@ def run_evaluation(script_path: str, interval: int, output_dir: str,
             - job_dir:     本次作业实际输出目录（含时间戳子目录）
             - script_info: 脚本解析信息字典
     """
-    # 1. 解析脚本（委托给平台适配器，SLURM/LSF 各有专用解析器）
+    # 1. 解析脚本（委托给平台适配器，SLURM/LSF 等平台各有专用解析器）
     script_info = platform_adapter.parse_script(script_path)
     if script_info is None:
         raise RuntimeError(f"无法解析作业脚本: {script_path}")

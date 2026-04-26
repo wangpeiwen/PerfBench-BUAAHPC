@@ -8,6 +8,7 @@ SLURM 平台适配器。
 
 import os
 import glob
+import re
 import subprocess
 import time
 from typing import Dict, List, Optional
@@ -21,6 +22,58 @@ from perfbench.adapters.platform.logs import JobLogSummary, PlatformLogParser
 from perfbench.utils.logger import get_logger
 
 logger = get_logger()
+
+
+def parse_slurm_script(script_path: str) -> dict:
+    info = {
+        'job_name': None,
+        'nodes': 1,
+        'tasks_per_node': 1,
+        'cpus_per_task': 1,
+        'time_limit': None,
+        'partition': None,
+        'output': None,
+        'error': None,
+        'commands': [],
+    }
+
+    try:
+        with open(script_path, 'r', encoding='utf-8') as handle:
+            lines = handle.readlines()
+
+        for line in lines:
+            line = line.strip()
+            if line.startswith('#SBATCH'):
+                _parse_sbatch_directive(line, info)
+            elif line and not line.startswith('#'):
+                info['commands'].append(line)
+    except Exception as exc:
+        logger.error(f"解析 SLURM 脚本失败: {exc}")
+        return None
+
+    return info
+
+
+def _parse_sbatch_directive(line: str, info: dict) -> None:
+    line = line.replace('#SBATCH', '').strip()
+    patterns = {
+        'job_name': r'(?:--job-name|-J)[= ](\S+)',
+        'nodes': r'(?:--nodes|-N)[= ](\d+)',
+        'tasks_per_node': r'--ntasks-per-node[= ](\d+)',
+        'cpus_per_task': r'--cpus-per-task[= ](\d+)',
+        'time_limit': r'(?:--time|-t)[= ](\S+)',
+        'partition': r'(?:--partition|-p)[= ](\S+)',
+        'output': r'(?:--output|-o)[= ](\S+)',
+        'error': r'(?:--error|-e)[= ](\S+)',
+    }
+
+    for key, pattern in patterns.items():
+        match = re.search(pattern, line)
+        if match:
+            value = match.group(1)
+            if key in ('nodes', 'tasks_per_node', 'cpus_per_task'):
+                value = int(value)
+            info[key] = value
 
 
 def _start_login_monitor(jobid: str, interval: int, output_dir: str) -> int:
@@ -184,6 +237,9 @@ class SlurmAdapter(PlatformAdapter):
             accelerator_monitor: 加速卡监控器实例，为 None 时使用 NullMonitor（不采集）
         """
         self.accelerator_monitor = accelerator_monitor or NullMonitor()
+
+    def parse_script(self, script_path: str) -> dict:
+        return parse_slurm_script(script_path)
 
     # ------------------------------------------------------------------
     # 脚本准备（提交前逻辑）

@@ -12,9 +12,75 @@ from typing import Dict, List, Optional
 from perfbench.adapters.platform.base import PlatformAdapter
 from perfbench.adapters.platform.logs import JobLogSummary, PlatformLogParser
 from perfbench.utils.logger import get_logger
-from perfbench.utils.script_parser import parse_lsf_script
 
 logger = get_logger()
+
+
+def parse_lsf_script(script_path: str) -> dict:
+    info = {
+        'job_name': None,
+        'nodes': 1,
+        'tasks_per_node': 1,
+        'cpus_per_task': 1,
+        'num_processes': None,
+        'queue': None,
+        'time_limit': None,
+        'partition': None,
+        'output': None,
+        'error': None,
+        'commands': [],
+    }
+
+    try:
+        with open(script_path, 'r', encoding='utf-8') as handle:
+            lines = handle.readlines()
+
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith('#') or not stripped:
+                continue
+
+            if 'bsub ' in stripped:
+                _parse_bsub_line(stripped, info)
+                break
+    except Exception as exc:
+        logger.error(f"解析 LSF wrapper 脚本失败: {exc}")
+        return None
+
+    return info
+
+
+def _parse_bsub_line(line: str, info: dict) -> None:
+    bsub_match = re.search(r'bsub\s+(.+?)(?:[`"\']|$)', line)
+    if not bsub_match:
+        return
+    bsub_args = bsub_match.group(1)
+
+    patterns = {
+        'job_name': r'-J\s+(\S+)',
+        'nodes': r'-N\s+(\d+)',
+        'num_processes': r'-n\s+(\d+)',
+        'tasks_per_node': r'-np\s+(\d+)',
+        'queue': r'-q\s+(\S+)',
+        'time_limit': r'-timelimit\s+(\S+)',
+        'output': r'-o\s+(\S+)',
+        'error': r'-e\s+(\S+)',
+    }
+
+    for key, pattern in patterns.items():
+        match = re.search(pattern, bsub_args)
+        if match:
+            value = match.group(1)
+            if key in ('nodes', 'num_processes', 'tasks_per_node'):
+                value = int(value)
+            info[key] = value
+
+    if info.get('queue'):
+        info['partition'] = info['queue']
+
+    executable_match = re.search(r'(?:^|[\s])(\./\S+|/\S+)\s*', bsub_args)
+    if executable_match:
+        info['commands'].append(executable_match.group(1))
 
 
 def _start_login_monitor(jobid: str, interval: int, output_dir: str) -> int:

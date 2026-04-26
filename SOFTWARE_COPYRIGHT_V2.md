@@ -94,7 +94,6 @@ perfbench/
 │       ├── logger.py                     # 日志管理模块，配置文件和控制台双输出的日志系统
 │       ├── progress_bar.py               # 进度条模块，提供简单进度条和分步进度条两种显示方式
 │       ├── result_handler.py             # 结果处理模块，解析 sacct/bjobs 日志、计算并行度和并行效率
-│       ├── script_parser.py              # 脚本解析模块，通过正则表达式提取 SBATCH 指令中的作业配置参数
 │       └── system_checker.py             # 系统检查模块，检测 SLURM 环境变量、命令可用性和系统架构
 ```
 
