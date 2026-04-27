@@ -1,96 +1,114 @@
-# PerfBench 开销测试
+# SLURM + DCU 开销测试
 
-本目录包含用于量化 PerfBench 对被测作业 `job_elapsed_time` 扰动的测试脚本。
+本目录用于在 SLURM + DCU 集群上测试 PerfBench 监控逻辑是否会改变目标作业自身的
+SLURM `Elapsed` 时间。
 
-## 测试目的
+当前 PerfBench 的采样设计分为两层：
 
-回答核心问题：**PerfBench 的监控/采样行为是否会拖慢被测作业本身的运行时间？**
+- `--platform slurm`：启用登录节点侧采样，周期性调用 `sacct`、`sinfo`、`sstat`、
+  `scontrol`，作业结束后再采集 `seff`。
+- `--accelerator dcu`：把计算节点侧 DCU 采样器注入到批处理脚本中。采样器通过
+  `srun --overlap` 在每个计算节点启动一个采样任务，并把 `hy-smi` 或 `rocm-smi`
+  输出写到 `dcu_logs/dcu_hysmi_<node>.log`。
 
-## 统计口径
+这个测试会把登录节点采样和计算节点 DCU 采样拆开对比：
 
-- 开销百分比只基于作业级 `job_elapsed_time` 计算，baseline 为 `bare`
-- `bare` 直接读取 `sacct.log` 中的 `Elapsed`
-- `pb_*` 优先递归读取 PerfBench 在 `--overhead` 模式下写出的 `final_sacct.log`；若不存在，再回退到监控产生的 `sacct_*.log`
-- 必要时兼容旧结果目录中的 `performance_report.json.elapsed_time`
-- `timing.txt` 只记录外层 end-to-end 时间，保留用于调试，不参与开销计算
-
-## 计入口径说明
-
-| 来源 | 是否计入本次开销百分比 | 说明 |
-|------|------------------------|------|
-| 计算节点内 DCU 采样 | 是 | 只要它拖慢作业运行，就会反映到 `job_elapsed_time` |
-| 登录节点轮询监控 | 是 | 只统计其对作业运行时间的净扰动 |
-| Python 前后处理 / 报告生成 | 否 | 这些属于 end-to-end 时间，不纳入本分析 |
+| 模式 | 登录节点采样 | 计算节点 DCU 采样 | 用途 |
+| --- | --- | --- | --- |
+| `bare` | 否 | 否 | 直接 `sbatch` 的基线 |
+| `pb_nodcu` | 是 | 否 | PerfBench 框架和登录节点监控开销 |
+| `pb_dcu10` | 是 | 10 秒间隔 | 常规 DCU 采样开销 |
+| `pb_dcu2` | 是 | 2 秒间隔 | 高频 DCU 采样压力测试 |
 
 ## 文件说明
 
-| 文件 | 用途 |
-|------|------|
-| `overhead_bare.slurm` | 裸跑基准脚本（LAMMPS 10N×4DCU） |
-| `run_overhead_test.sh` | 批量驱动脚本，自动执行 4 种模式 × N 次重复；对 `pb_*` 调用 PerfBench 时启用 `--overhead` |
-| `analyze_overhead.py` | 结果分析脚本，只基于 `job_elapsed_time` 输出汇总表格、开销百分比、t 检验，并优先读取 `final_sacct.log` |
-| `1m_in.lj` | LAMMPS 测例输入脚本 |
+| 文件 | 作用 |
+| --- | --- |
+| `overhead_bare.slurm` | 被测负载脚本，当前为 195 节点、每节点 4 DCU 的 LAMMPS 作业 |
+| `run_overhead_test.sh` | 按模式重复运行开销测试 |
+| `analyze_overhead.py` | 汇总 SLURM `Elapsed` 时间并计算开销比例 |
+| `1m_in.lj` | LAMMPS 输入文件 |
 
-## 测试矩阵
+## 运行方法
 
-| 模式 | DCU 采样 | 登录节点监控 | 说明 |
-|------|---------|------------|------|
-| bare | 无 | 无 | 直接 `sbatch`，作为 baseline |
-| pb_nodcu | 无 | 有 | PerfBench 框架固定扰动，不含 DCU 采样 |
-| pb_dcu10 | 10s 间隔 | 有 | 标准采样频率 |
-| pb_dcu2 | 2s 间隔 | 有 | 高频采样，压力测试 |
-
-## 使用方法
-
-### 1. 运行测试
+在 SLURM 登录节点进入本仓库后运行：
 
 ```bash
-cd /public/home/buaahpc/retro/PerfBench-BUAAHPC/test/slurm_dcu_overhead
+cd test/slurm_dcu_overhead
+bash run_overhead_test.sh 5
+```
 
-# 每种模式跑 5 次（默认）
-bash run_overhead_test.sh
+结果会写到：
 
-# 或指定重复次数
+```text
+test/slurm_dcu_overhead/overhead_results_<timestamp>/
+```
+
+然后分析结果：
+
+```bash
+python3 analyze_overhead.py overhead_results_<timestamp>
+```
+
+常用环境变量覆盖方式：
+
+```bash
+PROJ_ROOT=/path/to/PerfBench-BUAAHPC \
+WORKLOAD=/path/to/overhead_bare.slurm \
+OUTPUT_ROOT=/path/to/output_parent \
+LOGIN_INTERVAL=10 \
+DCU_INTERVAL_STD=10 \
+DCU_INTERVAL_FAST=2 \
 bash run_overhead_test.sh 3
 ```
 
-结果输出到 `../overhead_results_<timestamp>/` 目录。
+## 测量口径
 
-### 2. 分析结果
+主指标是顶层 SLURM 作业的 `Elapsed` 字段：
+
+- `bare` 模式读取直接 `sbatch --wait` 后保存的 `sacct.log`。
+- `pb_*` 模式优先读取 PerfBench 在 `--overhead` 模式下生成的 `final_sacct.log`。
+- 如果 `final_sacct.log` 不存在，分析脚本会回退读取周期性 `sacct_*.log` 快照。
+
+`timing.txt` 记录的是驱动脚本的端到端墙钟时间，但它不作为主要开销比例的计算依据，
+因为其中包含 Python 启动、报告生成以及调度侧等待等额外噪声。
+
+## 当前 PerfBench 调用方式
+
+无 DCU 采样时，驱动脚本会显式调用：
 
 ```bash
-python3 analyze_overhead.py ../overhead_results_<timestamp>
+python3 "$PERFBENCH" \
+  -s "$WORKLOAD" \
+  -t "$LOGIN_INTERVAL" \
+  -o "$OUT_DIR" \
+  --platform slurm \
+  --overhead \
+  --accelerator none
 ```
 
-输出示例：
+启用 DCU 采样时，调用方式为：
 
-```text
-分析目录: ../overhead_results_20260418_120000
-统计口径: 仅使用 job_elapsed_time；忽略 timing.txt / end-to-end
-
-========================================================================
-模式                 次数    均值(s)   标准差(s)     开销(%)
-------------------------------------------------------------------------
-裸跑 (baseline)         5      120.3       2.15   baseline
-PerfBench 无DCU         5      120.8       1.98     +0.42%
-PerfBench DCU-10s       5      121.5       2.33     +1.00%
-PerfBench DCU-2s        5      123.1       2.67     +2.33%
-========================================================================
+```bash
+python3 "$PERFBENCH" \
+  -s "$WORKLOAD" \
+  -t "$LOGIN_INTERVAL" \
+  -o "$OUT_DIR" \
+  --platform slurm \
+  --overhead \
+  --accelerator dcu \
+  --accelerator-interval 10
 ```
 
-## 判据
-
-| 开销范围 | 结论 |
-|---------|------|
-| < 1% | 可忽略，工具对作业运行时间无实质影响 |
-| 1% ~ 5% | 可接受，需在报告中注明 |
-| > 5% | 需优化采样策略（降低频率、减少 fork 等） |
+其中 `--accelerator-interval` 会分别取 `DCU_INTERVAL_STD` 和 `DCU_INTERVAL_FAST`。
 
 ## 注意事项
 
-- 尽量在集群空闲时段测试，减少调度波动和背景负载干扰
-- 可用 `#SBATCH --nodelist=` 锁定节点，排除异构噪声
-- 确认 `hy-smi` 在计算节点可用，SLURM 版本 >= 20.11（`srun --overlap` 依赖）
-- 对十几秒级短作业，建议开启 PerfBench `--overhead`；它会在 `wait_for_job` 之后额外写出 `final_sacct.log`
-- `pb_nodcu` 与 `bare` 的差值表示 PerfBench 框架固定扰动；`pb_dcu10/pb_dcu2` 则是框架加采样扰动
-- 如机时紧张，可先只跑 `bare + pb_dcu10` 两组做快速对比
+- 尽量在集群空闲时段测试，减少调度波动和背景负载干扰。
+- 每个模式应使用相同分区、节点数量和负载脚本。
+- 如果需要更严格控制，可以在 `overhead_bare.slurm` 中用 `#SBATCH --nodelist=...`
+  固定节点。
+- 确认计算节点上 `hy-smi` 或 `rocm-smi` 可用。
+- 当前 DCU 采样路径依赖 `srun --overlap`。
+- `pb_nodcu - bare` 可近似估计 PerfBench 框架和登录节点监控的固定开销。
+- `pb_dcu10 - pb_nodcu`、`pb_dcu2 - pb_nodcu` 可近似估计 DCU 采样器的增量开销。

@@ -1,126 +1,134 @@
-#!/bin/bash
-# ============================================================
-# PerfBench 开销测试批量驱动脚本
+#!/usr/bin/env bash
+# Batch driver for measuring PerfBench overhead on SLURM + DCU.
 #
-# 用法: bash run_overhead_test.sh [repeat]
-#   repeat: 每种模式重复次数，默认 5
+# Usage:
+#   bash run_overhead_test.sh [repeat]
 #
-# 前置条件:
-#   - 在集群登录节点执行
-#   - overhead_bare.slurm 在同目录下
-#   - PerfBench 已安装（perfbench.py 可用）
-# ============================================================
+# Optional environment overrides:
+#   PROJ_ROOT=/path/to/PerfBench-BUAAHPC
+#   WORKLOAD=/path/to/overhead_bare.slurm
+#   OUTPUT_ROOT=/path/to/results_parent
+#   LOGIN_INTERVAL=10
+#   DCU_INTERVAL_STD=10
+#   DCU_INTERVAL_FAST=2
 
 set -euo pipefail
 
 REPEAT=${1:-5}
+LOGIN_INTERVAL=${LOGIN_INTERVAL:-10}
+DCU_INTERVAL_STD=${DCU_INTERVAL_STD:-10}
+DCU_INTERVAL_FAST=${DCU_INTERVAL_FAST:-2}
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+PROJ_ROOT=${PROJ_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd)}
+PERFBENCH=${PERFBENCH:-"${PROJ_ROOT}/perfbench.py"}
+WORKLOAD=${WORKLOAD:-"${SCRIPT_DIR}/overhead_bare.slurm"}
+OUTPUT_ROOT=${OUTPUT_ROOT:-"${SCRIPT_DIR}"}
+
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-PROJ_ROOT="/public/home/buaahpc/retro/PerfBench-BUAAHPC"
-BASE_DIR="${PROJ_ROOT}/test/slurm_dcu_overhead/overhead_results_${TIMESTAMP}"
-SCRIPT_DIR="${PROJ_ROOT}/test/slurm_dcu_overhead"
-PERFBENCH="${PROJ_ROOT}/perfbench.py"
-WORKLOAD="${SCRIPT_DIR}/overhead_bare.slurm"
+BASE_DIR="${OUTPUT_ROOT}/overhead_results_${TIMESTAMP}"
 
 mkdir -p "$BASE_DIR"
 
-echo "=== PerfBench Overhead Benchmark ==="
-echo "Workload: LAMMPS 10N×4DCU"
-echo "Repeats:  $REPEAT"
-echo "Output:   $BASE_DIR"
-echo "Start:    $(date)"
+if [[ ! -f "$PERFBENCH" ]]; then
+    echo "[ERROR] perfbench launcher not found: $PERFBENCH" >&2
+    exit 1
+fi
+
+if [[ ! -f "$WORKLOAD" ]]; then
+    echo "[ERROR] workload script not found: $WORKLOAD" >&2
+    exit 1
+fi
+
+echo "=== PerfBench SLURM+DCU overhead benchmark ==="
+echo "Project:        $PROJ_ROOT"
+echo "Workload:       $WORKLOAD"
+echo "Repeats:        $REPEAT"
+echo "Login interval: ${LOGIN_INTERVAL}s"
+echo "DCU intervals:  ${DCU_INTERVAL_STD}s, ${DCU_INTERVAL_FAST}s"
+echo "Output:         $BASE_DIR"
+echo "Start:          $(date)"
 echo ""
 
-# 记录集群状态快照
 sinfo -N -o "%N %t %f %m %G" > "$BASE_DIR/cluster_snapshot.log" 2>&1 || true
 
-# ----------------------------------------------------------
-# Phase 1: 裸跑基准
-# ----------------------------------------------------------
-echo "[Phase 1/4] Bare runs (direct sbatch)..."
-for i in $(seq 1 $REPEAT); do
-    echo "  Bare run $i/$REPEAT"
-    OUT_DIR="$BASE_DIR/bare_$i"
-    mkdir -p "$OUT_DIR"
+run_bare() {
+    local idx=$1
+    local out_dir="$BASE_DIR/bare_${idx}"
+    mkdir -p "$out_dir"
 
-    T_START=$(date +%s.%N)
-    # --wait 同步等待作业完成
-    JOBID=$(sbatch --wait -o "$OUT_DIR/job_%j.out" -e "$OUT_DIR/job_%j.err" \
-            "$WORKLOAD" 2>&1 | grep -oP '\d+$')
-    T_END=$(date +%s.%N)
+    echo "  bare run ${idx}/${REPEAT}"
+    local t_start t_end jobid_raw jobid
+    t_start=$(date +%s.%N)
+    jobid_raw=$(sbatch --parsable --wait \
+        -o "$out_dir/job_%j.out" \
+        -e "$out_dir/job_%j.err" \
+        "$WORKLOAD")
+    jobid=${jobid_raw%%;*}
+    t_end=$(date +%s.%N)
 
-    # 调试保留：timing.txt 记录外层 end-to-end 时间，不参与开销计算。
-    echo "jobid=$JOBID start=$T_START end=$T_END" > "$OUT_DIR/timing.txt"
-    sacct -j "$JOBID" --format=JobID,JobName%20,State,Elapsed,CPUTimeRAW,MaxRSS,AveRSS,AllocCPUS -P \
-        > "$OUT_DIR/sacct.log" 2>&1
-    echo "  -> JobID=$JOBID done"
-done
+    echo "jobid=$jobid start=$t_start end=$t_end" > "$out_dir/timing.txt"
+    sacct -j "$jobid" \
+        --format=JobID,JobName%20,State,Elapsed,CPUTimeRAW,MaxRSS,AveRSS,AllocCPUS \
+        -P > "$out_dir/sacct.log" 2>&1 || true
+    echo "  -> JobID=$jobid done"
+}
 
-# ----------------------------------------------------------
-# Phase 2: PerfBench 无 DCU 采样
-# ----------------------------------------------------------
-echo ""
-echo "[Phase 2/4] PerfBench (no DCU sampling)..."
-for i in $(seq 1 $REPEAT); do
-    echo "  PerfBench-noDCU run $i/$REPEAT"
-    OUT_DIR="$BASE_DIR/pb_nodcu_$i"
+run_perfbench() {
+    local mode=$1
+    local idx=$2
+    shift 2
 
-    T_START=$(date +%s.%N)
-    python3 "$PERFBENCH" -s "$WORKLOAD" -t 10 -o "$OUT_DIR" --accelerator none --overhead
-    T_END=$(date +%s.%N)
+    local out_dir="$BASE_DIR/${mode}_${idx}"
+    mkdir -p "$out_dir"
 
-    # 调试保留：timing.txt 记录外层 end-to-end 时间，不参与开销计算。
-    echo "start=$T_START end=$T_END" > "$OUT_DIR/timing.txt"
+    echo "  ${mode} run ${idx}/${REPEAT}"
+    local t_start t_end
+    t_start=$(date +%s.%N)
+    python3 "$PERFBENCH" \
+        -s "$WORKLOAD" \
+        -t "$LOGIN_INTERVAL" \
+        -o "$out_dir" \
+        --platform slurm \
+        --overhead \
+        "$@"
+    t_end=$(date +%s.%N)
+
+    echo "start=$t_start end=$t_end" > "$out_dir/timing.txt"
     echo "  -> done"
+}
+
+echo "[Phase 1/4] bare: direct sbatch, no PerfBench"
+for i in $(seq 1 "$REPEAT"); do
+    run_bare "$i"
 done
 
-# ----------------------------------------------------------
-# Phase 3: PerfBench + DCU 采样 10s
-# ----------------------------------------------------------
 echo ""
-echo "[Phase 3/4] PerfBench (DCU interval=10s)..."
-for i in $(seq 1 $REPEAT); do
-    echo "  PerfBench-DCU10 run $i/$REPEAT"
-    OUT_DIR="$BASE_DIR/pb_dcu10_$i"
-
-    T_START=$(date +%s.%N)
-    python3 "$PERFBENCH" -s "$WORKLOAD" -t 10 -o "$OUT_DIR" --accelerator dcu --accelerator-interval 10 --overhead
-    T_END=$(date +%s.%N)
-
-    # 调试保留：timing.txt 记录外层 end-to-end 时间，不参与开销计算。
-    echo "start=$T_START end=$T_END" > "$OUT_DIR/timing.txt"
-    echo "  -> done"
+echo "[Phase 2/4] pb_nodcu: PerfBench login-node sampling only"
+for i in $(seq 1 "$REPEAT"); do
+    run_perfbench "pb_nodcu" "$i" --accelerator none
 done
 
-# ----------------------------------------------------------
-# Phase 4: PerfBench + DCU 采样 2s（高频）
-# ----------------------------------------------------------
 echo ""
-echo "[Phase 4/4] PerfBench (DCU interval=2s, high-freq)..."
-for i in $(seq 1 $REPEAT); do
-    echo "  PerfBench-DCU2 run $i/$REPEAT"
-    OUT_DIR="$BASE_DIR/pb_dcu2_$i"
-
-    T_START=$(date +%s.%N)
-    python3 "$PERFBENCH" -s "$WORKLOAD" -t 10 -o "$OUT_DIR" --accelerator dcu --accelerator-interval 2 --overhead
-    T_END=$(date +%s.%N)
-
-    # 调试保留：timing.txt 记录外层 end-to-end 时间，不参与开销计算。
-    echo "start=$T_START end=$T_END" > "$OUT_DIR/timing.txt"
-    echo "  -> done"
+echo "[Phase 3/4] pb_dcu10: PerfBench login-node sampling + DCU ${DCU_INTERVAL_STD}s"
+for i in $(seq 1 "$REPEAT"); do
+    run_perfbench "pb_dcu10" "$i" \
+        --accelerator dcu \
+        --accelerator-interval "$DCU_INTERVAL_STD"
 done
 
-# ----------------------------------------------------------
-# 汇总
-# ----------------------------------------------------------
+echo ""
+echo "[Phase 4/4] pb_dcu2: PerfBench login-node sampling + DCU ${DCU_INTERVAL_FAST}s"
+for i in $(seq 1 "$REPEAT"); do
+    run_perfbench "pb_dcu2" "$i" \
+        --accelerator dcu \
+        --accelerator-interval "$DCU_INTERVAL_FAST"
+done
+
 echo ""
 echo "=== All runs complete ==="
 echo "Results: $BASE_DIR"
 echo "End:     $(date)"
 echo ""
-echo "--- Quick summary ---"
-echo "Mode           | Runs"
-echo "---------------|-----"
-echo "bare           | $REPEAT"
-echo "pb_nodcu       | $REPEAT"
-echo "pb_dcu10       | $REPEAT"
-echo "pb_dcu2        | $REPEAT"
+echo "Analyze with:"
+echo "  python3 ${SCRIPT_DIR}/analyze_overhead.py ${BASE_DIR}"
