@@ -15,10 +15,8 @@
 """
 
 import os
-import re
 import shutil
 import statistics
-import time
 from typing import List, Optional
 
 from perfbench.utils.logger import get_logger
@@ -50,6 +48,7 @@ class MultiScaleOrchestrator:
         self.granularity = self.global_cfg.get("granularity", "board")
         self.repeat = max(1, self.global_cfg.get("repeat", 1))
         self.aggregation = self.global_cfg.get("aggregation", "mean")
+        self.monitor_interval = int(self.global_cfg.get("monitor_interval", 60))
 
         self.mode = self.scaling_cfg.get("mode", "strong")
         self.scales = self.scaling_cfg.get("scales", [1])
@@ -174,20 +173,35 @@ class MultiScaleOrchestrator:
         通过 PlatformAdapter 的标准接口完成。
         """
         try:
-            # prepare_script: 注入监控代码
-            prepared_path = self.adapter.prepare_script(script_path, work_dir)
+            script_info = self.adapter.parse_script(script_path)
+            if script_info is None:
+                logger.error(f"无法解析作业脚本: {script_path}")
+                return None
 
-            # submit_job: 提交
-            job_id = self.adapter.submit_job(prepared_path, work_dir)
+            prepared_path = self.adapter.prepare_script(
+                script_path, script_info, self.monitor_interval, work_dir
+            )
+
+            job_id = self.adapter.submit_job(prepared_path)
             if not job_id:
                 return None
 
-            # start_monitoring: 启动监控（如有）
-            self.adapter.start_monitoring(job_id, work_dir)
+            self.adapter.start_monitoring(
+                job_id, self.monitor_interval, work_dir
+            )
 
-            # wait_for_job: 等待完成，返回运行时间
-            elapsed = self.adapter.wait_for_job(job_id, work_dir)
-            return elapsed
+            final_state = self.adapter.wait_for_job(job_id)
+            logger.info(f"作业 {job_id} 结束状态: {final_state}")
+
+            self.adapter.capture_final_logs(job_id, work_dir)
+            log_summary = self.adapter.get_log_parser().parse_job_logs(
+                work_dir, self.monitor_interval
+            )
+            if log_summary.elapsed_seconds is None:
+                logger.warning(f"无法解析作业运行时间: {job_id}")
+                return None
+
+            return float(log_summary.elapsed_seconds)
 
         except Exception as e:
             logger.error(f"作业执行失败: {e}")

@@ -40,6 +40,9 @@ def run_config_flow(args, logger) -> None:
     if config is None:
         sys.exit(1)
 
+    if args.interval is not None:
+        config.setdefault("global", {})["monitor_interval"] = args.interval
+
     errors = validate_test_config(config)
     if errors:
         for error in errors:

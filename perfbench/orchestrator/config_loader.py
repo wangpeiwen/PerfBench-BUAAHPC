@@ -70,6 +70,7 @@ def _apply_defaults(config: dict) -> dict:
     g.setdefault("granularity", "board")
     g.setdefault("repeat", 1)
     g.setdefault("aggregation", "mean")
+    g.setdefault("monitor_interval", 60)
 
     # scaling
     s = config.setdefault("scaling", {})
@@ -120,6 +121,14 @@ def validate_test_config(config: dict) -> list:
     scaling = config.get("scaling", {})
     mode = scaling.get("mode", "strong")
     scales = scaling.get("scales", [])
+    global_cfg = config.get("global", {})
+
+    try:
+        monitor_interval = int(global_cfg.get("monitor_interval", 60))
+        if monitor_interval <= 0:
+            errors.append("global.monitor_interval 必须为正整数")
+    except (TypeError, ValueError):
+        errors.append("global.monitor_interval 必须为正整数")
 
     if len(scales) < 2:
         errors.append("scaling.scales 至少需要 2 个规模（基准 + 目标）")

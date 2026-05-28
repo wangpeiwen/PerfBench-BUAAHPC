@@ -106,7 +106,7 @@ chmod +x perfbench.py
 | `-init` | - | 初始化工具环境，安装依赖库 | `./perfbench.py -init` |
 | `-v` | - | 运行工具适配性测试 | `./perfbench.py -v` |
 | `-s, --script` | - | 指定SLURM/LSF作业脚本路径 | `-s script.slurm/script.sh` |
-| `-t, --interval` | - | 设置性能数据采集间隔（秒，必需） | `-t 60` |
+| `-t, --interval` | - | 设置性能数据采集间隔（秒）；`--script` 模式必需，`--config` 模式可覆盖 `global.monitor_interval` | `-t 60` |
 | `-o, --output` | - | 指定输出目录路径（必需） | `-o /tmp/output` |
 | `--platform` | - | 调度平台类型（`slurm` / `lsf` / `tianhe`） | `--platform lsf` |
 | `--accelerator` | - | 启用加速卡监控类型（`dcu` / `matrix` / `none`） | `--accelerator dcu` |
@@ -143,9 +143,14 @@ chmod +x perfbench.py
 # 使用配置文件进行支撑软件前后对比评测
 ./perfbench.py --config support_test.yaml -o /tmp/support_results
 
+# 使用配置文件并覆盖登录节点监控采样间隔
+./perfbench.py --config support_test.yaml -o /tmp/support_results -t 30
+
 # 如需内部核级粒度，请在配置文件中设置 global.granularity: core
 ./perfbench.py --config test_config_template.yaml -o /tmp/results
 ```
+
+配置驱动模式默认使用 YAML 中的 `global.monitor_interval` 作为登录节点监控采样间隔；未设置时默认 60 秒。命令行 `-t/--interval` 会覆盖该配置。多规模和支撑软件评测会按平台适配器统一流程解析脚本、注入监控、提交作业、等待完成，并从调度日志中解析每次运行的 `elapsed_seconds` 作为规模聚合与 before/after 指标计算输入。
 
 ## 输出说明
 
