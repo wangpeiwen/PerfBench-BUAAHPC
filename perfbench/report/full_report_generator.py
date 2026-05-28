@@ -18,7 +18,7 @@ from datetime import datetime
 from typing import Optional
 
 
-def generate_full_report(config: dict, platform_config: Optional[dict],
+def generate_full_report(config: dict, hardware_config: Optional[dict],
                          result: dict, output_dir: str,
                          is_support: bool = False) -> tuple:
     """
@@ -26,7 +26,7 @@ def generate_full_report(config: dict, platform_config: Optional[dict],
 
     Args:
         config: 用户测试配置
-        platform_config: 平台配置字典
+        hardware_config: 硬件配置字典
         result: 编排器 run() 返回的结果字典
         output_dir: 输出目录
         is_support: 是否为支撑软件评测模式
@@ -54,16 +54,16 @@ def generate_full_report(config: dict, platform_config: Optional[dict],
     # ── 1. 测试环境 ──
     lines.append("## 1. 测试环境")
     lines.append("")
-    platform_name = "未指定"
+    hardware_name = "未指定"
     processor = "未指定"
     accel_type = "无"
-    if platform_config:
-        platform_name = platform_config.get("platform_name", platform_name)
-        processor = platform_config.get("processor_name", processor)
-        accel_type = platform_config.get("accelerator_type", "none")
+    if hardware_config:
+        hardware_name = hardware_config.get("hardware_name", hardware_name)
+        processor = hardware_config.get("processor_name", processor)
+        accel_type = hardware_config.get("accelerator_type", "none")
     lines.append(f"| 项目 | 内容 |")
     lines.append(f"|------|------|")
-    lines.append(f"| 平台 | {platform_name} |")
+    lines.append(f"| 硬件 | {hardware_name} |")
     lines.append(f"| 处理器 | {processor} |")
     lines.append(f"| 加速卡 | {accel_type} |")
     lines.append(f"| 测试粒度 | {granularity} |")
@@ -132,7 +132,7 @@ def generate_full_report(config: dict, platform_config: Optional[dict],
             "mode": mode_name,
         },
         "environment": {
-            "platform": platform_name,
+            "hardware": hardware_name,
             "processor": processor,
             "accelerator": accel_type,
             "granularity": granularity,

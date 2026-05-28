@@ -206,11 +206,11 @@ class MultiScaleOrchestrator:
 
     def _compute_cores_list(self) -> List[int]:
         """计算各规模对应的并行单元数。"""
-        # 从 platform_config 获取平台名
-        platform_name = self.config.get("platform_name", "")
+        # 从 hardware_config 获取硬件名
+        hardware_name = self.config.get("hardware_name", "")
         cores = []
         for scale in self.scales:
-            info = calculate_parallelism(platform_name, scale, self.granularity)
+            info = calculate_parallelism(hardware_name, scale, self.granularity)
             if info:
                 cores.append(info["core_num"])
             else:

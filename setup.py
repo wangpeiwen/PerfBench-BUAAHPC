@@ -8,6 +8,7 @@ setup(
     packages=find_packages(),
     python_requires=">=3.6",
     install_requires=[
+        "PyYAML>=5.1",        # YAML 测试配置加载
         "reportlab>=3.6.0",   # PDF 覆盖层生成（certificate_generator.py）
         "pypdf>=3.0.0",       # PDF 模板读取与合并（certificate_generator.py）
     ],

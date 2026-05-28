@@ -27,6 +27,7 @@ PerfBench 依赖以下 Python 库（通过 `pip install` 安装）：
 
 | 库 | 版本要求 | 用途 |
 |----|---------|------|
+| `PyYAML` | >=5.1 | 加载 YAML 测试配置文件 |
 | `reportlab` | >=3.6.0 | 生成 PDF 覆盖层（证书报告） |
 | `pypdf` | >=3.0.0 | 读取 PDF 模板并合并生成最终证书 |
 
@@ -108,11 +109,10 @@ chmod +x perfbench.py
 | `-t, --interval` | - | 设置性能数据采集间隔（秒，必需） | `-t 60` |
 | `-o, --output` | - | 指定输出目录路径（必需） | `-o /tmp/output` |
 | `--platform` | - | 调度平台类型（`slurm` / `lsf` / `tianhe`） | `--platform lsf` |
-| `--accelerator` | - | 加速卡类型（`dcu` / `matrix` / `none`），覆盖配置文件 | `--accelerator dcu` |
+| `--accelerator` | - | 启用加速卡监控类型（`dcu` / `matrix` / `none`） | `--accelerator dcu` |
 | `--accelerator-interval` | - | 加速卡采样间隔（秒），默认使用 `-t` 值 | `--accelerator-interval 10` |
-| `--config` | - | 测试配置文件路径（.yaml/.json），启用多规模/支撑软件评测 | `--config test.yaml` |
-| `--granularity` | - | 测试粒度：`board`（板卡级，默认）/ `core`（内部核级） | `--granularity core` |
-| `--init-config` | - | 生成测试配置模板文件到当前目录 | `--init-config` |
+| `--config` | - | 测试配置文件路径（.yaml/.yml），启用多规模/支撑软件评测 | `--config test.yaml` |
+| `--init-config` | - | 生成 YAML 测试配置模板文件到当前目录 | `--init-config` |
 | `--force` | - | 跳过环境检测，仅用于调试 | `--force` |
 | `--version` | - | 显示工具版本信息 | `./perfbench.py --version` |
 
@@ -134,7 +134,7 @@ chmod +x perfbench.py
 # 在海光 DCU 集群上提交作业并采集 DCU 指标（10秒采样间隔）
 ./perfbench.py -s ./examples/test_programs/sample.slurm -t 60 -o /tmp/perfbench_results --accelerator dcu --accelerator-interval 10
 
-# 生成多规模测试配置模板
+# 生成 YAML 多规模测试配置模板
 ./perfbench.py --init-config
 
 # 使用配置文件进行多规模可扩展性评测（应用软件）
@@ -143,8 +143,8 @@ chmod +x perfbench.py
 # 使用配置文件进行支撑软件前后对比评测
 ./perfbench.py --config support_test.yaml -o /tmp/support_results
 
-# 指定内部核级粒度（覆盖配置文件中的 granularity）
-./perfbench.py --config test_config_template.yaml --granularity core -o /tmp/results
+# 如需内部核级粒度，请在配置文件中设置 global.granularity: core
+./perfbench.py --config test_config_template.yaml -o /tmp/results
 ```
 
 ## 输出说明
@@ -167,7 +167,7 @@ chmod +x perfbench.py
 
 生成的报告包含以下关键性能指标：
 
-- **平台信息**：运行的超算平台名称
+- **硬件信息**：运行的计算硬件名称
 - **节点数量**：作业使用的计算节点数
 - **应用名称**：作业名称
 - **核心数量**：使用的CPU核心总数
@@ -361,10 +361,11 @@ perfbench/
 ├── perfbench/
 │   ├── __init__.py
 │   ├── __main__.py           # CLI主程序
-│   ├── platform_config.json  # 平台配置文件（运行时唯一配置源）
+│   ├── hardware_config.json  # 硬件基线配置文件
 │   ├── core/                 # 核心功能模块
 │   │   ├── initializer.py    # 环境初始化
 │   │   ├── job_runner.py      # 作业运行器（run_evaluation）
+│   │   ├── script_flow.py     # --script 单作业评测流程
 │   │   └── validator.py      # 环境验证器
 │   ├── libs/                 # 不同架构的库文件（预留能力，当前版本不包含）
 │   ├── report/               # 报告生成模块
@@ -384,9 +385,9 @@ perfbench/
 │   │       └── none.py       # 空实现（无加速卡）
 │   ├── hardware_registry.json # 处理器核数认定配置表（配置化，支持动态扩展）
 │   ├── test_config_template.yaml # 多规模测试配置模板（YAML）
-│   ├── test_config_template.json # 多规模测试配置模板（JSON）
 │   ├── orchestrator/          # 编排引擎（多规模/支撑软件评测）
-│   │   ├── config_loader.py   # 测试配置加载器（YAML/JSON 双格式）
+│   │   ├── config_flow.py     # --config 配置驱动评测流程
+│   │   ├── config_loader.py   # 测试配置加载器（YAML 格式）
 │   │   ├── multi_scale.py     # 多规模自动提交编排器
 │   │   └── before_after.py    # 支撑软件前后对比编排器
 │   ├── analysis/             # 领域分析层
@@ -394,7 +395,7 @@ perfbench/
 │   │   ├── scalability.py    # 可扩展性计算（强/弱可扩展并行效率）
 │   │   ├── accuracy.py       # 数值模拟精度（绝对误差/相对误差/RMSE）
 │   │   ├── improvement.py    # 支撑软件性能提升率（6个公式）
-│   │   └── config_reader.py  # 平台配置读取器
+│   │   └── config_reader.py  # 硬件配置读取器
 │   └── utils/                # 工具函数
 │       ├── logger.py         # 日志管理
 │       └── system_checker.py # 系统环境检查

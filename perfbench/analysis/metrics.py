@@ -3,8 +3,8 @@
 """
 指标计算器。
 
-职责：根据平台类型和节点数计算并行度，根据基准参数计算并行效率。
-不依赖调度命令或平台配置文件，所有输入均为已解析的 Python 对象。
+职责：根据硬件类型和节点数计算并行度，根据基准参数计算并行效率。
+不依赖调度命令或硬件配置文件，所有输入均为已解析的 Python 对象。
 
 并行度换算规则从 hardware_registry.json 配置文件加载，支持动态扩展。
 
@@ -45,16 +45,16 @@ def _load_registry() -> dict:
     return _registry_cache
 
 
-def calculate_parallelism(platform_name: str, node_num: int,
+def calculate_parallelism(hardware_name: str, node_num: int,
                           granularity: Optional[str] = None) -> Optional[dict]:
     """
-    根据平台类型和节点数计算并行度。
+    根据硬件类型和节点数计算并行度。
 
     从 hardware_registry.json 查表获取每节点核数/板卡数，支持动态扩展新平台。
 
     Args:
-        platform_name: 平台标识字符串，需与 platform_config.json 中的
-                       platform_name 字段一致
+        hardware_name: 硬件标识字符串，需与 hardware_config.json 中的
+                       hardware_name 字段一致
         node_num:      参与计算的节点数
         granularity:   测试粒度等级，"board"（板卡级，默认）或 "core"（内部核级）
                        为 None 时使用 hardware_registry.json 中的 default_granularity
@@ -65,17 +65,17 @@ def calculate_parallelism(platform_name: str, node_num: int,
             "method":   str,   计算方式描述（LaTeX 格式）
             "granularity": str, 实际使用的粒度
         }
-        不支持的平台返回 None。
+        不支持的硬件返回 None。
     """
     registry = _load_registry()
     processors = registry.get("processors", {})
-    spec = processors.get(platform_name)
+    spec = processors.get(hardware_name)
 
     if spec is None:
         logger.error(
-            f"无法计算并行度：不支持的平台类型。"
-            f"platform_name={platform_name!r}, node_num={node_num}。"
-            f"请在 hardware_registry.json 中添加该平台配置。"
+            f"无法计算并行度：不支持的硬件类型。"
+            f"hardware_name={hardware_name!r}, node_num={node_num}。"
+            f"请在 hardware_registry.json 中添加该硬件配置。"
         )
         return None
 
@@ -98,7 +98,7 @@ def calculate_parallelism(platform_name: str, node_num: int,
     }
 
 
-def calculate_efficiency(platform_config: dict, parallelism_info: dict,
+def calculate_efficiency(hardware_config: dict, parallelism_info: dict,
                          elapsed_time: int) -> Optional[float]:
     """
     计算并行效率（百分比）。
@@ -113,7 +113,7 @@ def calculate_efficiency(platform_config: dict, parallelism_info: dict,
         T_N = elapsed_time（当前规模运行时间，秒）
 
     Args:
-        platform_config:  平台配置字典，需包含 compared_cores / compared_run_time
+        hardware_config:  硬件配置字典，需包含 compared_cores / compared_run_time
         parallelism_info: calculate_parallelism() 的返回值
         elapsed_time:     实际作业运行时间（秒），需 > 0
 
@@ -129,8 +129,8 @@ def calculate_efficiency(platform_config: dict, parallelism_info: dict,
         return None
 
     try:
-        compared_cores = platform_config.get("compared_cores", 5)
-        compared_run_time = platform_config.get("compared_run_time", 60)
+        compared_cores = hardware_config.get("compared_cores", 5)
+        compared_run_time = hardware_config.get("compared_run_time", 60)
         core_num = parallelism_info["core_num"]
 
         # 规范公式: E = (T_M × M) / (T_N × N) × 100%

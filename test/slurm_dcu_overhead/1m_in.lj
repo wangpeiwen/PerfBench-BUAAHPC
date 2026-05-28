@@ -1,26 +1,28 @@
-#rd-Jones melt - 简化百万核版本
+# Large Lennard-Jones melt workload for PerfBench overhead testing.
+#
+# This case keeps the atom count near the previous setup and uses a moderate
+# production length.  The target is roughly a few minutes on a 95-node DCU run,
+# so platform jitter is less dominant without making the overhead test too slow.
 
-# 直接计算合适的体系尺寸
-# 目标：1亿原子 (百万核心 × 每核心100原子)
 variable target_atoms equal 100000000
-variable units_per_dim equal ceil((${target_atoms}/4.0)^(1/3.0)/20)
+variable cells_per_tile equal 20
+variable units_per_dim equal ceil((${target_atoms}/4.0)^(1.0/3.0)/${cells_per_tile})
+variable run_steps equal 1000
 
-variable xx equal 20*${units_per_dim}
-variable yy equal 20*${units_per_dim}  
-variable zz equal 20*${units_per_dim}
+variable xx equal ${cells_per_tile}*${units_per_dim}
+variable yy equal ${cells_per_tile}*${units_per_dim}
+variable zz equal ${cells_per_tile}*${units_per_dim}
 
 units           lj
 atom_style      atomic
 dimension       3
 boundary        p p p
 
-# 并行优化设置
-processors      * * * 
+processors      * * *
 neighbor        1.0 bin
 neigh_modify    delay 0 every 1 check yes
 comm_modify     mode single vel yes
 
-# 创建体系
 lattice         fcc 0.8442
 region          box block 0 ${xx} 0 ${yy} 0 ${zz}
 create_box      1 box
@@ -34,9 +36,11 @@ pair_coeff      1 1 1.0 1.0 2.5
 
 fix             1 all nve
 
-# 运行前验证
-run             0
-print "体系尺寸: ${xx} × ${yy} × ${zz}"
-print "实际总原子数: [count(all)]"
+thermo          300
+thermo_style    custom step atoms temp pe ke etotal press
+timer           full
 
-run             100
+run             0
+print           "PerfBench LAMMPS workload: box=${xx}x${yy}x${zz}, atoms=$(count(all)), steps=${run_steps}"
+
+run             ${run_steps}

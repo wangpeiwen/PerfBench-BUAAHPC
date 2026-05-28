@@ -29,6 +29,7 @@ prompts/
 .claude/
 llm_resources/
 .codex/
+AGENTS.md
 
 paper-*/
 doc/

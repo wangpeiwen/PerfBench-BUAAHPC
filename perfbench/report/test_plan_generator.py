@@ -15,19 +15,18 @@
 """
 
 import os
-import json
 from datetime import datetime
 from typing import Optional
 
 
-def generate_test_plan(config: dict, platform_config: Optional[dict],
+def generate_test_plan(config: dict, hardware_config: Optional[dict],
                        output_dir: str) -> str:
     """
-    从测试配置和平台配置生成测试大纲 Markdown 文件。
+    从测试配置和硬件配置生成测试大纲 Markdown 文件。
 
     Args:
-        config: 用户测试配置（从 test_config_template.yaml/json 加载）
-        platform_config: 平台配置字典（platform_config.json）
+        config: 用户测试配置（从 test_config_template.yaml 加载）
+        hardware_config: 硬件配置字典（hardware_config.json）
         output_dir: 输出目录
 
     Returns:
@@ -87,14 +86,14 @@ def generate_test_plan(config: dict, platform_config: Optional[dict],
     # ── 2. 测试环境 ──
     lines.append("## 2. 测试环境")
     lines.append("")
-    platform_name = "未指定"
+    hardware_name = "未指定"
     processor = "未指定"
     accel_type = "无"
-    if platform_config:
-        platform_name = platform_config.get("platform_name", platform_name)
-        processor = platform_config.get("processor_name", processor)
-        accel_type = platform_config.get("accelerator_type", "none")
-    lines.append(f"- 平台名称：{platform_name}")
+    if hardware_config:
+        hardware_name = hardware_config.get("hardware_name", hardware_name)
+        processor = hardware_config.get("processor_name", processor)
+        accel_type = hardware_config.get("accelerator_type", "none")
+    lines.append(f"- 硬件名称：{hardware_name}")
     lines.append(f"- 处理器型号：{processor}")
     lines.append(f"- 加速卡类型：{accel_type}")
     lines.append(f"- 测试粒度：{granularity}（{'板卡级' if granularity == 'board' else '内部核级'}）")
@@ -143,8 +142,6 @@ def generate_test_plan(config: dict, platform_config: Optional[dict],
     lines.append("### 步骤 2：启动评测")
     lines.append("```bash")
     cmd_parts = ["./perfbench.py --config <config_file>"]
-    if granularity != "board":
-        cmd_parts.append(f"--granularity {granularity}")
     cmd_parts.append("-o <output_dir>")
     lines.append(" ".join(cmd_parts))
     lines.append("```")

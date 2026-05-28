@@ -3,11 +3,9 @@
 """
 测试配置加载器。
 
-支持 YAML 和 JSON 双格式，自动检测文件扩展名。
-加载后统一返回 dict，供编排引擎使用。
+支持 YAML 配置文件，加载后统一返回 dict，供编排引擎使用。
 """
 
-import json
 import os
 from typing import Optional
 
@@ -25,10 +23,10 @@ except ImportError:
 
 def load_test_config(config_path: str) -> Optional[dict]:
     """
-    加载测试配置文件（YAML 或 JSON）。
+    加载测试配置文件（YAML）。
 
     Args:
-        config_path: 配置文件路径（.yaml/.yml/.json）
+        config_path: 配置文件路径（.yaml/.yml）
 
     Returns:
         配置字典，加载失败返回 None
@@ -41,20 +39,17 @@ def load_test_config(config_path: str) -> Optional[dict]:
 
     try:
         with open(config_path, "r", encoding="utf-8") as f:
-            if ext in (".yaml", ".yml"):
-                if not HAS_YAML:
-                    logger.error(
-                        "需要 PyYAML 库来加载 YAML 配置。"
-                        "请执行: pip install pyyaml"
-                    )
-                    return None
-                config = yaml.safe_load(f)
-            elif ext == ".json":
-                config = json.load(f)
-            else:
-                logger.error(f"不支持的配置文件格式: {ext}（支持 .yaml/.yml/.json）")
+            if ext not in (".yaml", ".yml"):
+                logger.error(f"不支持的配置文件格式: {ext}（支持 .yaml/.yml）")
                 return None
-    except (json.JSONDecodeError, Exception) as e:
+            if not HAS_YAML:
+                logger.error(
+                    "需要 PyYAML 库来加载 YAML 配置。"
+                    "请执行: pip install pyyaml"
+                )
+                return None
+            config = yaml.safe_load(f)
+    except Exception as e:
         logger.error(f"配置文件解析失败: {e}")
         return None
 

@@ -1,12 +1,9 @@
 # PerfBench 测试配置模板
 # ============================================================
 # 使用方法：
-#   1. perfbench init-config 生成本模板
+#   1. ./perfbench.py --init-config 生成本模板
 #   2. 根据测试需求填写各节内容
-#   3. perfbench app scale --config test_config.yaml
-#      或 perfbench support perf --config test_config.yaml
-#
-# 也支持 JSON 格式（test_config.json），字段名相同
+#   3. ./perfbench.py --config test_config.yaml -o /path/to/output
 # ============================================================
 
 # ----------------------------------------------------------

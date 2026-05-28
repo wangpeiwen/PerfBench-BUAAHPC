@@ -8,10 +8,10 @@ perfbench.adapters.platform.*_logs。
 """
 
 from perfbench.analysis.metrics import calculate_parallelism, calculate_efficiency
-from perfbench.analysis.config_reader import get_platform_config
+from perfbench.analysis.config_reader import get_hardware_config
 
 __all__ = [
     "calculate_parallelism",
     "calculate_efficiency",
-    "get_platform_config",
+    "get_hardware_config",
 ]

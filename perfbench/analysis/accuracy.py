@@ -136,7 +136,7 @@ def parse_column_csv(filepath: str, column: int = 0,
 
 
 # output_parser 注册表：名称 → 解析函数
-# 用户可通过 platform_config.json 的 output_parser 字段指定
+# 用户可通过评测配置的 output_parser 字段指定
 OUTPUT_PARSERS = {
     "column_csv": parse_column_csv,
 }
