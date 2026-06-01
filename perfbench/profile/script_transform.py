@@ -63,11 +63,13 @@ def insert_after_last_directive(lines: List[str], directive_prefix: str,
 
 
 def make_formal_lines(script_path: str, env_block: str,
+                      launcher_path: Optional[str] = None,
                       directive_prefix: str = "#SBATCH") -> List[str]:
     """Remove the profile token and inject formal-run environment setup."""
     validate_profile_markers(script_path)
     lines = read_script_lines(script_path)
-    lines = [line.replace(PROFILE_TOKEN, "") for line in lines]
+    replacement = launcher_path or ""
+    lines = [line.replace(PROFILE_TOKEN, replacement) for line in lines]
     return insert_after_last_directive(lines, directive_prefix, env_block)
 
 

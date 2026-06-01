@@ -5,6 +5,8 @@ import unittest
 
 from perfbench.core.job_runner import run_evaluation
 from perfbench.profile.base import KernelProfileConfig, parse_counter_groups
+from perfbench.profile.backends import get_profile_backend
+from perfbench.profile.hipprof import HipprofBackend
 from perfbench.profile.isa_analyzer import analyze_isa_dump
 from perfbench.profile.rocprofv3 import RocprofV3Backend
 from perfbench.profile.script_transform import (
@@ -55,7 +57,16 @@ class KernelProfileTests(unittest.TestCase):
                 formal_text = handle.read()
             self.assertIn("ROCM_DUMP_ISA=1", formal_text)
             self.assertIn("ROCM_DUMP_ISA_DIR=", formal_text)
+            self.assertIn("GPU_DUMP_CODE_OBJECT=1", formal_text)
+            self.assertIn("perfbench_isa_dump_launcher.sh", formal_text)
             self.assertNotIn("__PERFBENCH_PROFILE__", formal_text)
+
+            dump_launcher = os.path.join(tmp, "kernel_profile", "perfbench_isa_dump_launcher.sh")
+            with open(dump_launcher, encoding="utf-8") as handle:
+                dump_launcher_text = handle.read()
+            self.assertIn("GPU_DUMP_CODE_OBJECT=1", dump_launcher_text)
+            self.assertIn("AMD_COMGR_SAVE_TEMPS=1", dump_launcher_text)
+            self.assertIn("llvm-objdump", dump_launcher_text)
 
             profile_dir = os.path.join(tmp, "kernel_profile")
             profile = backend.inject_profile_run(source, profile_dir)
@@ -70,6 +81,47 @@ class KernelProfileTests(unittest.TestCase):
                 launcher_text = handle.read()
             self.assertIn("rocprofv3", launcher_text)
             self.assertIn("--pmc 'SQ_WAVES'", launcher_text)
+            self.assertIn("SLURM_PROCID", launcher_text)
+
+    def test_profile_backend_factory_supports_hipprof(self):
+        backend = get_profile_backend(KernelProfileConfig(backend="hipprof"))
+        self.assertIsInstance(backend, HipprofBackend)
+
+    def test_hipprof_script_generation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = self.write_script(tmp)
+            backend = HipprofBackend(KernelProfileConfig(backend="hipprof"))
+
+            formal = backend.inject_formal_run(source, tmp)
+            with open(formal, encoding="utf-8") as handle:
+                formal_text = handle.read()
+            self.assertIn("ROCM_DUMP_ISA=1", formal_text)
+            self.assertIn("ROCM_DUMP_ISA_DIR=", formal_text)
+            self.assertIn("GPU_DUMP_CODE_OBJECT=1", formal_text)
+            self.assertIn("perfbench_isa_dump_launcher.sh", formal_text)
+            self.assertNotIn("__PERFBENCH_PROFILE__", formal_text)
+
+            dump_launcher = os.path.join(tmp, "kernel_profile", "perfbench_isa_dump_launcher.sh")
+            with open(dump_launcher, encoding="utf-8") as handle:
+                dump_launcher_text = handle.read()
+            self.assertIn("GPU_DUMP_CODE_OBJECT=1", dump_launcher_text)
+            self.assertIn("AMD_COMGR_SAVE_TEMPS=1", dump_launcher_text)
+            self.assertIn("llvm-objdump", dump_launcher_text)
+
+            profile_dir = os.path.join(tmp, "kernel_profile")
+            profile = backend.inject_profile_run(source, profile_dir)
+            with open(profile, encoding="utf-8") as handle:
+                profile_text = handle.read()
+            launcher = os.path.join(profile_dir, "perfbench_hipprof_launcher.sh")
+            self.assertIn("PERFBENCH_PROFILE_RUN=1", profile_text)
+            self.assertIn(launcher, profile_text)
+            self.assertNotIn("__PERFBENCH_PROFILE__", profile_text)
+
+            with open(launcher, encoding="utf-8") as handle:
+                launcher_text = handle.read()
+            self.assertIn("hipprof", launcher_text)
+            self.assertIn("--stats", launcher_text)
+            self.assertIn("--hip-trace", launcher_text)
             self.assertIn("SLURM_PROCID", launcher_text)
 
     def test_counter_group_parsing(self):
@@ -140,6 +192,45 @@ class KernelProfileTests(unittest.TestCase):
                 persisted = json.load(handle)
             self.assertEqual(persisted["backend"], "rocprofv3")
 
+    def test_hipprof_csv_summary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            job_dir = os.path.join(tmp, "job")
+            profile_dir = os.path.join(job_dir, "kernel_profile")
+            hipprof_dir = os.path.join(profile_dir, "hipprof")
+            os.makedirs(hipprof_dir)
+            os.makedirs(os.path.join(job_dir, "isa_dump"))
+
+            with open(
+                os.path.join(hipprof_dir, "perfbench_node_rank0_pid1.csv"),
+                "w",
+                encoding="utf-8",
+            ) as handle:
+                handle.write(
+                    "Name,DurationNs\n"
+                    "hipLaunchKernel,1500\n"
+                )
+            with open(
+                os.path.join(hipprof_dir, "trace.json"),
+                "w",
+                encoding="utf-8",
+            ) as handle:
+                handle.write("{}")
+
+            backend = HipprofBackend(KernelProfileConfig(backend="hipprof"))
+            summary = backend.parse_outputs(job_dir, profile_dir)
+            self.assertEqual(summary["backend"], "hipprof")
+            self.assertEqual(summary["hipprof"]["file_count"], 2)
+            self.assertEqual(summary["hipprof"]["by_kind"]["csv"], 1)
+            self.assertEqual(summary["hipprof"]["by_kind"]["json"], 1)
+            csv_summary = summary["hipprof"]["csv_summaries"][0]
+            self.assertEqual(csv_summary["rows"], 1)
+            self.assertEqual(csv_summary["columns"], ["Name", "DurationNs"])
+
+            summary_path = os.path.join(profile_dir, "kernel_profile_summary.json")
+            with open(summary_path, "r", encoding="utf-8") as handle:
+                persisted = json.load(handle)
+            self.assertEqual(persisted["backend"], "hipprof")
+
     def test_job_runner_uses_script_transformer(self):
         class Progress:
             def next(self, *args, **kwargs):
@@ -187,6 +278,48 @@ class KernelProfileTests(unittest.TestCase):
                 script_transformer=transformer,
             )
             self.assertEqual(adapter.prepared_source, transformed)
+
+    def test_job_runner_can_skip_login_node_monitoring(self):
+        class Progress:
+            def next(self, *args, **kwargs):
+                return None
+
+        class Adapter:
+            def __init__(self):
+                self.monitor_started = False
+
+            def parse_script(self, script_path):
+                return {"job_name": "mock", "nodes": 1}
+
+            def prepare_script(self, script_path, script_info, interval, output_dir):
+                return script_path
+
+            def submit_job(self, script_path):
+                return "42"
+
+            def start_monitoring(self, jobid, interval, output_dir):
+                self.monitor_started = True
+
+            def wait_for_job(self, jobid):
+                return "COMPLETED"
+
+            def capture_final_logs(self, jobid, output_dir):
+                return None
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = self.write_script(tmp)
+            adapter = Adapter()
+
+            run_evaluation(
+                source,
+                10,
+                tmp,
+                adapter,
+                Progress(),
+                monitor_job=False,
+            )
+
+            self.assertFalse(adapter.monitor_started)
 
 
 if __name__ == "__main__":

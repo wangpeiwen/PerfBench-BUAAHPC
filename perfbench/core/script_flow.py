@@ -33,6 +33,13 @@ SCRIPT_FLOW_STEPS = [
 def run_script_flow(args, logger) -> None:
     """Run the single-script evaluation flow."""
     profile_backend = _build_profile_backend(args, logger)
+    kernel_profile_enabled = profile_backend is not None
+    effective_accelerator = None if kernel_profile_enabled else args.accelerator
+    effective_accelerator_interval = (
+        None if kernel_profile_enabled else args.accelerator_interval
+    )
+    if kernel_profile_enabled:
+        logger.info("kernel profile 路径不启用登录节点周期监控和加速卡时序监控")
 
     progress = StepProgress(SCRIPT_FLOW_STEPS)
     progress.next()
@@ -45,16 +52,17 @@ def run_script_flow(args, logger) -> None:
         platform=args.platform,
         progress=progress,
         logger=logger,
-        accelerator_type=args.accelerator,
-        accelerator_interval=args.accelerator_interval,
+        accelerator_type=effective_accelerator,
+        accelerator_interval=effective_accelerator_interval,
         overhead_mode=args.overhead,
         profile_backend=profile_backend,
+        monitor_job=not kernel_profile_enabled,
     )
     _generate_report(
         logger, job_dir, script_info, args.interval, args.platform,
         _build_accelerator_config(
-            accelerator_type=args.accelerator,
-            accelerator_interval=args.accelerator_interval,
+            accelerator_type=effective_accelerator,
+            accelerator_interval=effective_accelerator_interval,
         ),
     )
     if profile_backend is not None:
@@ -67,7 +75,8 @@ def _run_evaluation(script_path: str, interval: int, output_dir: str,
                     accelerator_type: Optional[str] = None,
                     accelerator_interval: Optional[int] = None,
                     overhead_mode: bool = False,
-                    profile_backend=None):
+                    profile_backend=None,
+                    monitor_job: bool = True):
     accelerator_config = _build_accelerator_config(
         accelerator_type=accelerator_type,
         accelerator_interval=accelerator_interval,
@@ -86,6 +95,7 @@ def _run_evaluation(script_path: str, interval: int, output_dir: str,
         script_path, interval, output_dir, adapter, progress,
         capture_final_logs=overhead_mode or profile_backend is not None,
         script_transformer=script_transformer,
+        monitor_job=monitor_job,
     )
 
     logger.info(f"PerfBench 评测输出目录: {job_dir}")
@@ -135,7 +145,7 @@ def _run_kernel_profile(args, logger, job_dir: str, profile_backend) -> None:
     )
     jobid = adapter.submit_job(prepared_script)
     logger.info(f"profile 作业已提交, JobID={jobid}")
-    adapter.start_monitoring(jobid, args.interval, profile_run_dir)
+    logger.info("profile 作业跳过登录节点周期监控")
     final_state = adapter.wait_for_job(jobid)
     adapter.capture_final_logs(jobid, profile_run_dir)
 

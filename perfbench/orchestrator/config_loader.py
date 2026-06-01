@@ -89,6 +89,13 @@ def _apply_defaults(config: dict) -> dict:
     a.setdefault("metrics", ["absolute_error", "relative_error", "rmse"])
     a.setdefault("thresholds", {})
 
+    # scale compliance
+    sc = config.setdefault("scale_compliance", {})
+    sc.setdefault("enabled", True)
+    sc.setdefault("active_util_threshold", 10.0)
+    sc.setdefault("scale_fraction_threshold", 0.8)
+    sc.setdefault("coverage_threshold", 0.9)
+
     # support
     sp = config.setdefault("support", {})
     sp.setdefault("enabled", False)
@@ -148,6 +155,25 @@ def validate_test_config(config: dict) -> list:
         if not accuracy.get("reference_file"):
             errors.append("启用精度测试时 accuracy.reference_file 不能为空")
 
+    scale_compliance = config.get("scale_compliance", {})
+    if scale_compliance.get("enabled", True):
+        _validate_ratio(
+            scale_compliance, "scale_fraction_threshold",
+            errors, "scale_compliance.scale_fraction_threshold"
+        )
+        _validate_ratio(
+            scale_compliance, "coverage_threshold",
+            errors, "scale_compliance.coverage_threshold"
+        )
+        try:
+            active_threshold = float(
+                scale_compliance.get("active_util_threshold", 10.0)
+            )
+            if active_threshold < 0:
+                errors.append("scale_compliance.active_util_threshold 必须不小于 0")
+        except (TypeError, ValueError):
+            errors.append("scale_compliance.active_util_threshold 必须为数字")
+
     support = config.get("support", {})
     if support.get("enabled"):
         if not support.get("before_script"):
@@ -156,3 +182,13 @@ def validate_test_config(config: dict) -> list:
             errors.append("支撑软件模式下 support.after_script 不能为空")
 
     return errors
+
+
+def _validate_ratio(config: dict, key: str, errors: list, label: str) -> None:
+    try:
+        value = float(config.get(key))
+    except (TypeError, ValueError):
+        errors.append(f"{label} 必须为 0 到 1 之间的数字")
+        return
+    if value < 0 or value > 1:
+        errors.append(f"{label} 必须为 0 到 1 之间的数字")

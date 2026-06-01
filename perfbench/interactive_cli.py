@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Interactive command-line wizard for PerfBench demos."""
+"""Interactive command-line wizard for PerfBench evaluations."""
 
 import os
 import sys
@@ -52,6 +52,10 @@ PROFILE_RANK_SCOPE_CHOICES = (
     ("rank0", "仅 rank0"),
     ("all", "所有 rank"),
 )
+PROFILE_BACKEND_CHOICES = (
+    ("hipprof", "hipprof（DTK/HIP trace，推荐当前环境）"),
+    ("rocprofv3", "rocprofv3"),
+)
 SUPPORT_METRIC_TYPES = ("exec_perf", "io", "compile", "mixed_precision", "autotune")
 
 
@@ -69,7 +73,7 @@ def run_interactive_cli(logger) -> None:
 
 def _print_banner() -> None:
     print("")
-    print("PerfBench 交互式演示入口")
+    print("PerfBench 交互式评测入口")
     print("=" * 36)
     print("本入口仅负责收集参数，实际评测仍走既有 --config 或 --script 流程。")
     print("")
@@ -133,21 +137,21 @@ def _run_kernel_profile_wizard(main_path: str, logger) -> None:
     print("Kernel 级观测")
     print("-" * 36)
     print("当前 kernel 级观测复用既有 --script --kernel-profile 流程，平台固定为 SLURM。")
+    print("kernel 级路径不启动登录节点周期监控，也不启用加速卡时序监控。")
     output_dir = _prompt_path("输出目录", required=True, must_exist=False)
     interval = _prompt_int("性能采集时间间隔（秒）", default=60, minimum=1)
-    accelerator = _prompt_choice("正式评测阶段的加速卡监控", ACCELERATOR_CHOICES, default="none")
-    accelerator_interval = None
-    if accelerator != "none":
-        accelerator_interval = _prompt_int(
-            "加速卡采样间隔（秒，回车使用性能采集时间间隔）",
-            default=None,
-            minimum=1,
-        )
-    profile_counters = _prompt_text(
-        "rocprofv3 counter 组（回车使用默认 SQ_WAVES,GRBM_GUI_ACTIVE）",
-        default=None,
-        required=False,
+    profile_backend = _prompt_choice(
+        "profile 后端",
+        PROFILE_BACKEND_CHOICES,
+        default="hipprof",
     )
+    profile_counters = None
+    if profile_backend == "rocprofv3":
+        profile_counters = _prompt_text(
+            "rocprofv3 counter 组（回车使用默认 SQ_WAVES,GRBM_GUI_ACTIVE）",
+            default=None,
+            required=False,
+        )
     rank_scope = _prompt_choice(
         "profile MPI rank 范围",
         PROFILE_RANK_SCOPE_CHOICES,
@@ -177,8 +181,7 @@ def _run_kernel_profile_wizard(main_path: str, logger) -> None:
             script=script,
             output=run_output_dir,
             interval=interval,
-            accelerator=None if accelerator == "none" else accelerator,
-            accelerator_interval=accelerator_interval,
+            profile_backend=profile_backend,
             profile_counters=profile_counters,
             rank_scope=rank_scope,
         )
@@ -190,8 +193,7 @@ def _run_kernel_profile_wizard(main_path: str, logger) -> None:
 
 
 def _build_kernel_args(script: str, output: str, interval: int,
-                       accelerator: Optional[str],
-                       accelerator_interval: Optional[int],
+                       profile_backend: str,
                        profile_counters: Optional[str],
                        rank_scope: str):
     return SimpleNamespace(
@@ -199,11 +201,11 @@ def _build_kernel_args(script: str, output: str, interval: int,
         interval=interval,
         output=output,
         platform="slurm",
-        accelerator=accelerator,
-        accelerator_interval=accelerator_interval,
+        accelerator=None,
+        accelerator_interval=None,
         overhead=False,
         kernel_profile=True,
-        profile_backend="rocprofv3",
+        profile_backend=profile_backend,
         profile_counters=profile_counters,
         profile_rank_scope=rank_scope,
         profile_output_subdir="kernel_profile",
@@ -252,6 +254,12 @@ def _collect_generated_config(main_path: str, granularity: str,
             },
             "metrics": ["absolute_error", "relative_error", "rmse"],
             "thresholds": {},
+        },
+        "scale_compliance": {
+            "enabled": True,
+            "active_util_threshold": 10.0,
+            "scale_fraction_threshold": 0.8,
+            "coverage_threshold": 0.9,
         },
         "support": {
             "enabled": main_path == "support",

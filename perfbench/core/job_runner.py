@@ -23,7 +23,8 @@ logger = get_logger()
 def run_evaluation(script_path: str, interval: int, output_dir: str,
                    platform_adapter: PlatformAdapter, progress,
                    capture_final_logs: bool = False,
-                   script_transformer: Optional[Callable] = None):
+                   script_transformer: Optional[Callable] = None,
+                   monitor_job: bool = True):
     """
     处理作业脚本的统一流程，委托平台细节给适配器。
 
@@ -40,6 +41,7 @@ def run_evaluation(script_path: str, interval: int, output_dir: str,
         interval:         监控采集间隔（秒）
         output_dir:       用户指定的基础输出目录
         platform_adapter: 平台适配器实例（如 SlurmAdapter / LsfAdapter）
+        monitor_job:      是否启动登录节点周期监控
 
     Returns:
         tuple[str, dict]: (job_dir, script_info)
@@ -74,9 +76,13 @@ def run_evaluation(script_path: str, interval: int, output_dir: str,
     logger.info(f"作业已提交, JobID={jobid}")
     progress.next("作业提交")
 
-    # 5. 启动登录节点监控
-    platform_adapter.start_monitoring(jobid, interval, job_dir)
-    progress.next("监控中")
+    # 5. 按需启动登录节点周期监控
+    if monitor_job:
+        platform_adapter.start_monitoring(jobid, interval, job_dir)
+        progress.next("监控中")
+    else:
+        logger.info("跳过登录节点周期监控")
+        progress.next("跳过登录节点监控")
 
     # 6. 等待作业完成
     platform_adapter.wait_for_job(jobid)

@@ -22,6 +22,10 @@ from typing import List, Optional
 from perfbench.utils.logger import get_logger
 from perfbench.analysis.metrics import calculate_parallelism
 from perfbench.analysis.scalability import multi_scale_report
+from perfbench.analysis.scale_compliance import (
+    aggregate_scale_compliance,
+    calculate_scale_compliance,
+)
 
 logger = get_logger()
 
@@ -54,6 +58,7 @@ class MultiScaleOrchestrator:
         self.scales = self.scaling_cfg.get("scales", [1])
         self.datasets = self.scaling_cfg.get("datasets", [])
         self.compute_ratios = self.scaling_cfg.get("compute_ratios", [])
+        self.scale_compliance_cfg = config.get("scale_compliance", {})
 
         self.script_path = self.job_cfg.get("script", "")
         self.node_placeholder = self.job_cfg.get("node_placeholder", "__NODES__")
@@ -97,6 +102,7 @@ class MultiScaleOrchestrator:
 
             # 重复测试
             run_times = []
+            run_details = []
             for r in range(self.repeat):
                 run_dir = os.path.join(scale_dir, f"run_{r+1}") if self.repeat > 1 else scale_dir
                 if self.repeat > 1:
@@ -106,21 +112,29 @@ class MultiScaleOrchestrator:
                 else:
                     run_script = modified_script_path
 
-                elapsed = self._submit_and_wait(run_script, run_dir)
+                run_result = self._submit_and_wait(run_script, run_dir, scale)
+                elapsed = run_result.get("elapsed_seconds")
                 if elapsed is not None:
                     run_times.append(elapsed)
                     logger.info(f"  scale={scale}, run={r+1}/{self.repeat}, "
                                 f"elapsed={elapsed:.2f}s")
                 else:
                     logger.warning(f"  scale={scale}, run={r+1} 失败")
+                run_result["run_index"] = r + 1
+                run_details.append(run_result)
 
             # 聚合
             agg_time = self._aggregate(run_times) if run_times else None
+            scale_compliance = aggregate_scale_compliance(
+                item.get("scale_compliance") for item in run_details
+            )
 
             all_scale_results.append({
                 "scale": scale,
                 "run_times": run_times,
+                "run_details": run_details,
                 "aggregated_time": agg_time,
+                "scale_compliance": scale_compliance,
             })
 
         # 计算可扩展性指标
@@ -166,17 +180,19 @@ class MultiScaleOrchestrator:
 
         return content
 
-    def _submit_and_wait(self, script_path: str, work_dir: str) -> Optional[float]:
+    def _submit_and_wait(self, script_path: str, work_dir: str,
+                         scale: int) -> dict:
         """
-        提交作业并等待完成，返回运行时间（秒）。
+        提交作业并等待完成，返回本次运行的运行时间和可选加速卡摘要。
 
         通过 PlatformAdapter 的标准接口完成。
         """
+        result = {"output_dir": work_dir, "elapsed_seconds": None}
         try:
             script_info = self.adapter.parse_script(script_path)
             if script_info is None:
                 logger.error(f"无法解析作业脚本: {script_path}")
-                return None
+                return result
 
             prepared_path = self.adapter.prepare_script(
                 script_path, script_info, self.monitor_interval, work_dir
@@ -184,7 +200,8 @@ class MultiScaleOrchestrator:
 
             job_id = self.adapter.submit_job(prepared_path)
             if not job_id:
-                return None
+                return result
+            result["job_id"] = job_id
 
             self.adapter.start_monitoring(
                 job_id, self.monitor_interval, work_dir
@@ -199,13 +216,17 @@ class MultiScaleOrchestrator:
             )
             if log_summary.elapsed_seconds is None:
                 logger.warning(f"无法解析作业运行时间: {job_id}")
-                return None
+                self._attach_accelerator_evidence(result, work_dir, scale)
+                return result
 
-            return float(log_summary.elapsed_seconds)
+            result["elapsed_seconds"] = float(log_summary.elapsed_seconds)
+            self._attach_accelerator_evidence(result, work_dir, scale)
+            return result
 
         except Exception as e:
             logger.error(f"作业执行失败: {e}")
-            return None
+            self._attach_accelerator_evidence(result, work_dir, scale)
+            return result
 
     def _aggregate(self, times: List[float]) -> float:
         """根据配置的聚合方式计算结果。"""
@@ -230,3 +251,63 @@ class MultiScaleOrchestrator:
             else:
                 cores.append(scale)  # fallback: 直接用节点数
         return cores
+
+    def _attach_accelerator_evidence(self, result: dict, work_dir: str,
+                                     scale: int) -> None:
+        evidence = self._collect_accelerator_evidence(work_dir, scale)
+        if not evidence:
+            return
+        result.update(evidence)
+
+    def _collect_accelerator_evidence(self, work_dir: str,
+                                      scale: int) -> Optional[dict]:
+        """解析加速卡日志并计算规模合规性证据。"""
+        if not self.scale_compliance_cfg.get("enabled", True):
+            return None
+
+        monitor = getattr(self.adapter, "accelerator_monitor", None)
+        if monitor is None:
+            return None
+
+        log_subdir = monitor.get_log_subdir()
+        if not log_subdir or not os.path.isdir(os.path.join(work_dir, log_subdir)):
+            return None
+
+        try:
+            parsed_data = monitor.parse_logs(work_dir)
+            accelerator_summary = monitor.get_summary(parsed_data)
+            expected_devices = self._expected_accelerator_devices(scale)
+            if not expected_devices:
+                return {"accelerator_summary": accelerator_summary}
+
+            compliance = calculate_scale_compliance(
+                parsed_data,
+                expected_devices=expected_devices,
+                active_util_threshold=float(
+                    self.scale_compliance_cfg.get("active_util_threshold", 10.0)
+                ),
+                scale_fraction_threshold=float(
+                    self.scale_compliance_cfg.get("scale_fraction_threshold", 0.8)
+                ),
+                coverage_threshold=float(
+                    self.scale_compliance_cfg.get("coverage_threshold", 0.9)
+                ),
+            )
+            evidence = {"accelerator_summary": accelerator_summary}
+            if compliance:
+                evidence["scale_compliance"] = compliance
+            return evidence
+        except FileNotFoundError:
+            return None
+        except Exception as exc:
+            logger.warning(f"解析加速卡规模合规性证据失败: {exc}")
+            return None
+
+    def _expected_accelerator_devices(self, scale: int) -> Optional[int]:
+        hardware_name = self.config.get("hardware_name", "")
+        if not hardware_name:
+            return None
+        info = calculate_parallelism(hardware_name, scale, "board")
+        if not info:
+            return None
+        return int(info["core_num"])

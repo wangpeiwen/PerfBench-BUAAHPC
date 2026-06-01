@@ -13,6 +13,10 @@ from perfbench.profile.base import (
     parse_counter_groups,
     sh_quote,
 )
+from perfbench.profile.isa_dump import (
+    build_isa_dump_env_block,
+    write_isa_dump_launcher,
+)
 from perfbench.profile.isa_analyzer import analyze_isa_dump
 from perfbench.profile.script_transform import (
     make_formal_lines,
@@ -37,9 +41,11 @@ class RocprofV3Backend(ProfileBackend):
     def inject_formal_run(self, script_path: str, job_dir: str) -> str:
         profile_dir = self._profile_dir(job_dir)
         isa_dir = os.path.join(job_dir, "isa_dump")
+        launcher_path = os.path.join(profile_dir, "perfbench_isa_dump_launcher.sh")
+        write_isa_dump_launcher(launcher_path, isa_dir)
         formal_script = os.path.join(profile_dir, "formal_script.slurm")
-        env_block = self._formal_env_block(isa_dir)
-        lines = make_formal_lines(script_path, env_block)
+        env_block = build_isa_dump_env_block(isa_dir)
+        lines = make_formal_lines(script_path, env_block, sh_quote(launcher_path))
         return write_transformed_script(lines, formal_script)
 
     def inject_profile_run(self, script_path: str, profile_dir: str) -> str:
@@ -82,15 +88,6 @@ class RocprofV3Backend(ProfileBackend):
 
     def _profile_dir(self, job_dir: str) -> str:
         return os.path.join(job_dir, self.config.output_subdir)
-
-    @staticmethod
-    def _formal_env_block(isa_dir: str) -> str:
-        return (
-            "\n# PerfBench kernel ISA dump\n"
-            f"mkdir -p {sh_quote(isa_dir)}\n"
-            "export ROCM_DUMP_ISA=1\n"
-            f"export ROCM_DUMP_ISA_DIR={sh_quote(isa_dir)}\n"
-        )
 
     def _write_launcher(self, launcher_path: str, rocprof_dir: str) -> str:
         os.makedirs(os.path.dirname(os.path.abspath(launcher_path)), exist_ok=True)

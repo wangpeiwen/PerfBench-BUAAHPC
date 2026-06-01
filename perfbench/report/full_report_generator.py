@@ -168,21 +168,20 @@ def _write_app_results(lines: list, result: dict):
     if not report:
         lines.append("*无可扩展性数据*")
         lines.append("")
-        return
-
-    lines.append("### 3.1 可扩展性结果")
-    lines.append("")
-    lines.append("| 核数 | 运行时间(s) | 加速比 | 并行效率(%) |")
-    lines.append("|------|-------------|--------|-------------|")
-    for entry in report:
-        cores = entry.get("cores", "N/A")
-        time_val = entry.get("time", "N/A")
-        speedup = entry.get("speedup", 0)
-        eff = entry.get("efficiency", 0)
-        if isinstance(time_val, float):
-            time_val = f"{time_val:.2f}"
-        lines.append(f"| {cores} | {time_val} | {speedup:.2f} | {eff:.2f} |")
-    lines.append("")
+    else:
+        lines.append("### 3.1 可扩展性结果")
+        lines.append("")
+        lines.append("| 核数 | 运行时间(s) | 加速比 | 并行效率(%) |")
+        lines.append("|------|-------------|--------|-------------|")
+        for entry in report:
+            cores = entry.get("cores", "N/A")
+            time_val = entry.get("time", "N/A")
+            speedup = entry.get("speedup", 0)
+            eff = entry.get("efficiency", 0)
+            if isinstance(time_val, float):
+                time_val = f"{time_val:.2f}"
+            lines.append(f"| {cores} | {time_val} | {speedup:.2f} | {eff:.2f} |")
+        lines.append("")
 
     # 精度结果（如有）
     accuracy = result.get("accuracy_report")
@@ -192,6 +191,11 @@ def _write_app_results(lines: list, result: dict):
         lines.append(f"- 相对误差：{accuracy.get('relative_error', 'N/A')}")
         lines.append(f"- RMSE：{accuracy.get('rmse', 'N/A')}")
         lines.append("")
+
+    compliance_title = "3.3 规模合规性" if accuracy else "3.2 规模合规性"
+    _write_scale_compliance_results(
+        lines, result.get("results", []), title=compliance_title
+    )
 
 
 def _write_support_results(lines: list, result: dict):
@@ -239,3 +243,77 @@ def _write_support_results(lines: list, result: dict):
                     t = f"{t:.2f}"
                 lines.append(f"| {label} | {cores} | {t} |")
         lines.append("")
+
+    _write_support_scale_compliance(lines, before_data, after_data)
+
+
+def _write_scale_compliance_results(lines: list, scale_results: list,
+                                    title: str = "3.3 规模合规性") -> None:
+    rows = []
+    for item in scale_results or []:
+        compliance = item.get("scale_compliance")
+        if not compliance:
+            continue
+        rows.append((item.get("scale"), compliance))
+
+    if not rows:
+        return
+
+    lines.append(f"### {title}")
+    lines.append("")
+    lines.append("| 规模 | 分配卡数 | 平均活跃比例 | 覆盖率 | 通过率 | 判定 |")
+    lines.append("|------|----------|--------------|--------|--------|------|")
+    for scale, compliance in rows:
+        verdict = "通过" if compliance.get("compliance_pass") else "未通过"
+        lines.append(
+            "| {scale} | {devices} | {active} | {coverage} | {pass_rate} | {verdict} |".format(
+                scale=scale,
+                devices=compliance.get("expected_devices", "N/A"),
+                active=_fmt_ratio(compliance.get("mean_active_fraction")),
+                coverage=_fmt_ratio(compliance.get("coverage_mean")),
+                pass_rate=_fmt_ratio(compliance.get("pass_rate")),
+                verdict=verdict,
+            )
+        )
+    lines.append("")
+
+
+def _write_support_scale_compliance(lines: list, before_data: dict,
+                                    after_data: dict) -> None:
+    rows = []
+    for label, data in [("before", before_data), ("after", after_data)]:
+        for item in data.get("results", []) if data else []:
+            compliance = item.get("scale_compliance")
+            if compliance:
+                rows.append((label, item.get("scale"), compliance))
+
+    if not rows:
+        return
+
+    lines.append("### 3.3 规模合规性对比")
+    lines.append("")
+    lines.append("| 阶段 | 规模 | 分配卡数 | 平均活跃比例 | 覆盖率 | 通过率 | 判定 |")
+    lines.append("|------|------|----------|--------------|--------|--------|------|")
+    for label, scale, compliance in rows:
+        verdict = "通过" if compliance.get("compliance_pass") else "未通过"
+        lines.append(
+            "| {label} | {scale} | {devices} | {active} | {coverage} | {pass_rate} | {verdict} |".format(
+                label=label,
+                scale=scale,
+                devices=compliance.get("expected_devices", "N/A"),
+                active=_fmt_ratio(compliance.get("mean_active_fraction")),
+                coverage=_fmt_ratio(compliance.get("coverage_mean")),
+                pass_rate=_fmt_ratio(compliance.get("pass_rate")),
+                verdict=verdict,
+            )
+        )
+    lines.append("")
+
+
+def _fmt_ratio(value) -> str:
+    if value is None:
+        return "N/A"
+    try:
+        return f"{float(value) * 100:.1f}%"
+    except (TypeError, ValueError):
+        return "N/A"

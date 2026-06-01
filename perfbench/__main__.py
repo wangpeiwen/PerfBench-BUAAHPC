@@ -18,7 +18,7 @@ from perfbench.utils.logger import setup_logging
 
 PLATFORM_CHOICES = ("slurm", "lsf", "tianhe")
 ACCELERATOR_CHOICES = ("dcu", "matrix", "none")
-PROFILE_BACKEND_CHOICES = ("rocprofv3",)
+PROFILE_BACKEND_CHOICES = ("rocprofv3", "hipprof")
 PROFILE_RANK_SCOPE_CHOICES = ("rank0", "all")
 
 
@@ -34,7 +34,7 @@ def parse_arguments() -> argparse.ArgumentParser:
     parser.add_argument(
         "--interactive",
         action="store_true",
-        help="启动命令行交互式演示入口",
+        help="启动命令行交互式评测入口",
     )
     parser.add_argument(
         "--force",
@@ -85,13 +85,13 @@ def parse_arguments() -> argparse.ArgumentParser:
         "--profile-backend",
         choices=PROFILE_BACKEND_CHOICES,
         default="rocprofv3",
-        help="kernel profile 后端，默认 rocprofv3",
+        help="kernel profile 后端，默认 rocprofv3；可选 hipprof",
     )
     parser.add_argument(
         "--profile-counters",
         type=str,
         default=None,
-        help="rocprofv3 counter 组，分号分隔多组，例如 'SQ_WAVES;GRBM_GUI_ACTIVE'",
+        help="rocprofv3 counter 组，分号分隔多组，例如 'SQ_WAVES;GRBM_GUI_ACTIVE'；hipprof 后端忽略该参数",
     )
     parser.add_argument(
         "--profile-rank-scope",
@@ -134,6 +134,8 @@ def main() -> None:
             parser.error("--kernel-profile 暂不支持 --config 模式")
         if args.kernel_profile and args.platform != "slurm":
             parser.error("--kernel-profile 首版仅支持 --platform slurm")
+        if args.kernel_profile and args.accelerator not in (None, "none"):
+            parser.error("--kernel-profile 路径不启用 --accelerator 加速卡时序监控")
         if args.accelerator_interval is not None and args.accelerator is None:
             parser.error("--accelerator-interval 必须和 --accelerator 一起使用")
 
