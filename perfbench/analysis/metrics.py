@@ -7,6 +7,8 @@
 不依赖调度命令或硬件配置文件，所有输入均为已解析的 Python 对象。
 
 并行度换算规则从 hardware_registry.json 配置文件加载，支持动态扩展。
+内部核级使用每卡/每核组内部核数认定值：
+    core_num = node_num × boards_per_node × cores_per_card
 
 效率计算公式（对标规范）：
     强可扩展并行效率 = (T_M × M) / (T_N × N) × 100%
@@ -50,18 +52,20 @@ def calculate_parallelism(hardware_name: str, node_num: int,
     """
     根据硬件类型和节点数计算并行度。
 
-    从 hardware_registry.json 查表获取每节点核数/板卡数，支持动态扩展新平台。
+    从 hardware_registry.json 查表获取每节点板卡数和每卡内部核数，
+    支持动态扩展新平台。
 
     Args:
         hardware_name: 硬件标识字符串，需与 hardware_config.json 中的
                        hardware_name 字段一致
         node_num:      参与计算的节点数
-        granularity:   测试粒度等级，"board"（板卡级，默认）或 "core"（内部核级）
+        granularity:   测试粒度等级，"node"（节点级）、"board"（板卡级，默认）
+                       或 "core"（内部核级）
                        为 None 时使用 hardware_registry.json 中的 default_granularity
 
     Returns:
         dict: {
-            "core_num": int,   总并行单元数（板卡数或核数）
+            "core_num": int,   总并行单元数（节点数、板卡数或内部核数）
             "method":   str,   计算方式描述（LaTeX 格式）
             "granularity": str, 实际使用的粒度
         }
@@ -82,14 +86,41 @@ def calculate_parallelism(hardware_name: str, node_num: int,
     if granularity is None:
         granularity = registry.get("default_granularity", "board")
 
-    if granularity == "board":
+    if granularity == "node":
+        units_per_node = 1
+        method_latex = "node\\_num"
+    elif granularity == "board":
         units_per_node = spec.get("boards_per_node", 1)
         method_latex = spec.get("method_latex_board",
                                 f"node\\_num \\times {units_per_node}")
-    else:
-        units_per_node = spec["cores_per_node"]
+    elif granularity == "core":
+        boards_per_node = spec.get("boards_per_node", 1)
+        cores_per_card = spec.get("cores_per_card")
+        if cores_per_card is None:
+            logger.error(
+                f"无法计算内部核级并行度：{hardware_name!r} 缺少 "
+                "cores_per_card 配置"
+            )
+            return None
+        units_per_node = boards_per_node * cores_per_card
         method_latex = spec.get("method_latex_core",
-                                f"node\\_num \\times {units_per_node}")
+                                f"node\\_num \\times {boards_per_node} "
+                                f"\\times {cores_per_card}")
+    else:
+        logger.warning(f"未知测试粒度 {granularity!r}，按内部核级计算")
+        granularity = "core"
+        boards_per_node = spec.get("boards_per_node", 1)
+        cores_per_card = spec.get("cores_per_card")
+        if cores_per_card is None:
+            logger.error(
+                f"无法计算内部核级并行度：{hardware_name!r} 缺少 "
+                "cores_per_card 配置"
+            )
+            return None
+        units_per_node = boards_per_node * cores_per_card
+        method_latex = spec.get("method_latex_core",
+                                f"node\\_num \\times {boards_per_node} "
+                                f"\\times {cores_per_card}")
 
     return {
         "core_num": node_num * units_per_node,

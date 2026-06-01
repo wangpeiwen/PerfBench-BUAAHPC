@@ -25,9 +25,11 @@ SLURM `Elapsed` 时间。
 | 文件 | 作用 |
 | --- | --- |
 | `overhead_bare.slurm` | 被测负载脚本，当前为 195 节点、每节点 4 DCU 的 LAMMPS 作业 |
+| `kernel_smoke_profile.slurm` | kernel profile smoke test 提交脚本，1 节点 4 DCU，包含 PerfBench profile 标记 |
 | `run_overhead_test.sh` | 按模式重复运行开销测试 |
 | `analyze_overhead.py` | 汇总 SLURM `Elapsed` 时间并计算开销比例 |
 | `1m_in.lj` | LAMMPS 输入文件 |
+| `kernel_smoke_in.lj` | 缩小版 LAMMPS 输入文件，用于快速验证 ISA dump 和 `rocprofv3` 输出 |
 
 ## 运行方法
 
@@ -48,6 +50,30 @@ test/slurm_dcu_overhead/overhead_results_<timestamp>/
 
 ```bash
 python3 analyze_overhead.py overhead_results_<timestamp>
+```
+
+### Kernel profile smoke test
+
+`kernel_smoke_profile.slurm` 用于验证当前 `--kernel-profile` 功能是否能跑通。脚本中 `# PERFBENCH_PROFILE_TARGET` 与 `__PERFBENCH_PROFILE__` 均只出现一次，供 PerfBench 生成正式评测作业和二次 `rocprofv3` profile 作业。
+
+在仓库根目录运行：
+
+```bash
+python3 perfbench.py \
+  -s test/slurm_dcu_overhead/kernel_smoke_profile.slurm \
+  -t 10 \
+  -o /tmp/perfbench_kernel_smoke \
+  --platform slurm \
+  --kernel-profile \
+  --profile-counters "SQ_WAVES,GRBM_GUI_ACTIVE"
+```
+
+如果不在仓库根目录提交，可提前设置：
+
+```bash
+export PERFBENCH_REPO_ROOT=/path/to/PerfBench-BUAAHPC
+# 或直接指定输入文件
+export PERFBENCH_LAMMPS_INPUT=/path/to/kernel_smoke_in.lj
 ```
 
 常用环境变量覆盖方式：

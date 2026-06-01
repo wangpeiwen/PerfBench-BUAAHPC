@@ -18,6 +18,13 @@ from datetime import datetime
 from typing import Optional
 
 
+GRANULARITY_LABELS = {
+    "node": "节点级",
+    "board": "卡级/板卡级",
+    "core": "内部核级",
+}
+
+
 def generate_full_report(config: dict, hardware_config: Optional[dict],
                          result: dict, output_dir: str,
                          is_support: bool = False) -> tuple:
@@ -66,7 +73,9 @@ def generate_full_report(config: dict, hardware_config: Optional[dict],
     lines.append(f"| 硬件 | {hardware_name} |")
     lines.append(f"| 处理器 | {processor} |")
     lines.append(f"| 加速卡 | {accel_type} |")
-    lines.append(f"| 测试粒度 | {granularity} |")
+    lines.append(
+        f"| 测试粒度 | {granularity}（{_granularity_label(granularity)}） |"
+    )
     lines.append(f"| 重复次数 | {repeat} |")
     lines.append(f"| 聚合方式 | {aggregation} |")
     lines.append("")
@@ -147,6 +156,10 @@ def generate_full_report(config: dict, hardware_config: Optional[dict],
         json.dump(json_report, f, ensure_ascii=False, indent=2)
 
     return md_path, json_path
+
+
+def _granularity_label(granularity: str) -> str:
+    return GRANULARITY_LABELS.get(granularity, granularity)
 
 
 def _write_app_results(lines: list, result: dict):

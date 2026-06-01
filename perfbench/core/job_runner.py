@@ -9,6 +9,7 @@ Job runner module for PerfBench.
 
 import os
 from datetime import datetime
+from typing import Callable, Optional
 from perfbench.utils.logger import get_logger
 from perfbench.adapters.platform.base import PlatformAdapter
 
@@ -21,7 +22,8 @@ logger = get_logger()
 
 def run_evaluation(script_path: str, interval: int, output_dir: str,
                    platform_adapter: PlatformAdapter, progress,
-                   capture_final_logs: bool = False):
+                   capture_final_logs: bool = False,
+                   script_transformer: Optional[Callable] = None):
     """
     处理作业脚本的统一流程，委托平台细节给适配器。
 
@@ -56,9 +58,15 @@ def run_evaluation(script_path: str, interval: int, output_dir: str,
     # 2. 创建输出目录
     job_dir = _create_output_dir(output_dir, script_info)
 
+    source_script = script_path
+    if script_transformer is not None:
+        source_script = script_transformer(
+            script_path, script_info, interval, job_dir
+        )
+
     # 3. 准备脚本（平台相关：SLURM 注入 echo，LSF 直接使用原 wrapper）
     prepared_script = platform_adapter.prepare_script(
-        script_path, script_info, interval, job_dir
+        source_script, script_info, interval, job_dir
     )
 
     # 4. 提交作业

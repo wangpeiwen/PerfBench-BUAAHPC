@@ -39,3 +39,4 @@ STATUS.md
 #   用于存放超算平台环境依赖的wheels文件的目录
 pkgdownloads/
 knowledge_base/
+outputs/

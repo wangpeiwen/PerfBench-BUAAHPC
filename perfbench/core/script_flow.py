@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """Script-mode execution flow for PerfBench."""
 
+import json
 import os
 from datetime import datetime
 from typing import Optional
@@ -14,6 +15,7 @@ from perfbench.analysis import (
     get_hardware_config,
 )
 from perfbench.core.job_runner import run_evaluation as run_job_evaluation
+from perfbench.profile import KernelProfileConfig, get_profile_backend
 from perfbench.utils.progress_bar import StepProgress
 
 
@@ -30,6 +32,8 @@ SCRIPT_FLOW_STEPS = [
 
 def run_script_flow(args, logger) -> None:
     """Run the single-script evaluation flow."""
+    profile_backend = _build_profile_backend(args, logger)
+
     progress = StepProgress(SCRIPT_FLOW_STEPS)
     progress.next()
     progress.next("生成监控脚本")
@@ -44,6 +48,7 @@ def run_script_flow(args, logger) -> None:
         accelerator_type=args.accelerator,
         accelerator_interval=args.accelerator_interval,
         overhead_mode=args.overhead,
+        profile_backend=profile_backend,
     )
     _generate_report(
         logger, job_dir, script_info, args.interval, args.platform,
@@ -52,6 +57,8 @@ def run_script_flow(args, logger) -> None:
             accelerator_interval=args.accelerator_interval,
         ),
     )
+    if profile_backend is not None:
+        _run_kernel_profile(args, logger, job_dir, profile_backend)
     progress.finish()
 
 
@@ -59,7 +66,8 @@ def _run_evaluation(script_path: str, interval: int, output_dir: str,
                     platform: str, progress, logger,
                     accelerator_type: Optional[str] = None,
                     accelerator_interval: Optional[int] = None,
-                    overhead_mode: bool = False):
+                    overhead_mode: bool = False,
+                    profile_backend=None):
     accelerator_config = _build_accelerator_config(
         accelerator_type=accelerator_type,
         accelerator_interval=accelerator_interval,
@@ -67,15 +75,107 @@ def _run_evaluation(script_path: str, interval: int, output_dir: str,
 
     accel_monitor = get_accelerator_monitor(accelerator_config)
     adapter = get_platform_adapter(platform, accelerator_monitor=accel_monitor)
+    script_transformer = None
+    if profile_backend is not None:
+        script_transformer = (
+            lambda path, info, sample_interval, job_dir:
+            profile_backend.inject_formal_run(path, job_dir)
+        )
+
     job_dir, script_info = run_job_evaluation(
         script_path, interval, output_dir, adapter, progress,
-        capture_final_logs=overhead_mode,
+        capture_final_logs=overhead_mode or profile_backend is not None,
+        script_transformer=script_transformer,
     )
 
     logger.info(f"PerfBench 评测输出目录: {job_dir}")
     progress.next("生成报告")
 
     return job_dir, script_info
+
+
+def _build_profile_backend(args, logger):
+    if not getattr(args, "kernel_profile", False):
+        return None
+
+    profile_config = KernelProfileConfig(
+        backend=args.profile_backend,
+        counters=args.profile_counters,
+        rank_scope=args.profile_rank_scope,
+        output_subdir=args.profile_output_subdir,
+    )
+    backend = get_profile_backend(profile_config)
+    backend.preflight(args.script)
+    logger.info(
+        f"kernel profile 已启用: backend={profile_config.backend}, "
+        f"rank_scope={profile_config.rank_scope}, "
+        f"output_subdir={profile_config.output_subdir}"
+    )
+    return backend
+
+
+def _run_kernel_profile(args, logger, job_dir: str, profile_backend) -> None:
+    profile_dir = os.path.join(job_dir, args.profile_output_subdir)
+    profile_run_dir = os.path.join(profile_dir, "profile_run")
+    os.makedirs(profile_run_dir, exist_ok=True)
+
+    logger.info(f"开始二次 profile 运行，输出目录: {profile_dir}")
+    profile_script = profile_backend.inject_profile_run(args.script, profile_dir)
+
+    adapter = get_platform_adapter(
+        args.platform,
+        accelerator_monitor=get_accelerator_monitor({"accelerator_type": "none"}),
+    )
+    script_info = adapter.parse_script(profile_script)
+    if script_info is None:
+        raise RuntimeError(f"无法解析 profile 脚本: {profile_script}")
+
+    prepared_script = adapter.prepare_script(
+        profile_script, script_info, args.interval, profile_run_dir
+    )
+    jobid = adapter.submit_job(prepared_script)
+    logger.info(f"profile 作业已提交, JobID={jobid}")
+    adapter.start_monitoring(jobid, args.interval, profile_run_dir)
+    final_state = adapter.wait_for_job(jobid)
+    adapter.capture_final_logs(jobid, profile_run_dir)
+
+    profile_log_summary = _safe_parse_job_logs(
+        adapter, profile_run_dir, args.interval, logger
+    )
+    formal_log_summary = _safe_parse_job_logs(
+        get_platform_adapter(args.platform), job_dir, args.interval, logger
+    )
+
+    summary = profile_backend.parse_outputs(job_dir, profile_dir)
+    summary["formal_run"] = {
+        "output_dir": job_dir,
+        "elapsed_seconds": (
+            formal_log_summary.elapsed_seconds if formal_log_summary else None
+        ),
+        "state": formal_log_summary.final_state if formal_log_summary else None,
+    }
+    summary["profile_run"] = {
+        "job_id": jobid,
+        "state": final_state,
+        "output_dir": profile_run_dir,
+        "elapsed_seconds": (
+            profile_log_summary.elapsed_seconds if profile_log_summary else None
+        ),
+        "note": "profile run elapsed is not used for formal performance metrics",
+    }
+
+    summary_path = os.path.join(profile_dir, "kernel_profile_summary.json")
+    with open(summary_path, "w", encoding="utf-8") as handle:
+        json.dump(summary, handle, ensure_ascii=False, indent=2)
+    logger.info(f"kernel profile 摘要已生成: {summary_path}")
+
+
+def _safe_parse_job_logs(adapter, output_dir: str, interval: int, logger):
+    try:
+        return adapter.get_log_parser().parse_job_logs(output_dir, interval)
+    except Exception as exc:
+        logger.warning(f"解析调度日志失败: {output_dir}: {exc}")
+        return None
 
 
 def _build_accelerator_config(accelerator_type: Optional[str] = None,

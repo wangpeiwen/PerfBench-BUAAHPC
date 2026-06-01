@@ -71,7 +71,15 @@ chmod +x perfbench.py
 ./perfbench.py -v
 ```
 
-#### 3. 提交监控作业
+#### 3. 启动交互式演示入口
+评审演示时可使用交互式入口，按提示选择“应用软件”或“支撑软件”主路径，并继续选择“节点级”“卡级”或“kernel级”测试粒度：
+```bash
+./perfbench.py --interactive
+```
+
+其中节点级和卡级会生成一份生效 YAML 配置后进入既有 `--config` 配置驱动流程；kernel级会进入既有 `--script --kernel-profile` 流程。支撑软件 + kernel级会按 before/after 两个脚本顺序调用现有 kernel profile 单作业流程。
+
+#### 4. 提交监控作业
 提交SLURM脚本并启动性能监控：
 ```bash
 ./perfbench.py -s /path/to/script.slurm -t 60 -o /path/to/output
@@ -93,8 +101,35 @@ chmod +x perfbench.py
 ./perfbench.py -s /path/to/script.slurm -t 60 -o /path/to/output --accelerator dcu --accelerator-interval 10
 ```
 
+#### 6. 启用 Kernel ISA Dump 与二次 Profile
+在 SLURM + DCU/ROCm 环境中，可通过 `--kernel-profile` 在正式评测后额外提交一次 profile 专用作业。正式评测作业只注入 `ROCM_DUMP_ISA` 并保存 ISA；二次 profile 作业通过 `rocprofv3` 采集 kernel trace/counter/stat，耗时不计入正式评测结果。
 
-#### 6. 显示版本信息
+用户脚本中需要用标记指定要 profile 的计算命令：
+```bash
+# PERFBENCH_PROFILE_TARGET
+srun -n 256 __PERFBENCH_PROFILE__ ./solver input.dat
+```
+
+运行示例：
+```bash
+./perfbench.py -s /path/to/script.slurm -t 60 -o /path/to/output \
+  --platform slurm --kernel-profile \
+  --profile-counters "SQ_WAVES,GRBM_GUI_ACTIVE;SQ_INSTS_VALU"
+```
+
+仓库内提供了一个基于 LAMMPS/DCU 的短作业 smoke test，用于在 SLURM + 海光 DCU 机器上快速验证当前 kernel 级观测链路：
+```bash
+python3 perfbench.py \
+  -s test/slurm_dcu_overhead/kernel_smoke_profile.slurm \
+  -t 10 \
+  -o /tmp/perfbench_kernel_smoke \
+  --platform slurm \
+  --kernel-profile \
+  --profile-counters "SQ_WAVES,GRBM_GUI_ACTIVE"
+```
+
+
+#### 7. 显示版本信息
 ```bash
 ./perfbench.py --version
 ```
@@ -105,12 +140,18 @@ chmod +x perfbench.py
 |------|------|------|------|
 | `-init` | - | 初始化工具环境，安装依赖库 | `./perfbench.py -init` |
 | `-v` | - | 运行工具适配性测试 | `./perfbench.py -v` |
+| `--interactive` | - | 启动命令行交互式演示入口，按主路径和粒度生成/调用既有评测流程 | `./perfbench.py --interactive` |
 | `-s, --script` | - | 指定SLURM/LSF作业脚本路径 | `-s script.slurm/script.sh` |
 | `-t, --interval` | - | 设置性能数据采集间隔（秒）；`--script` 模式必需，`--config` 模式可覆盖 `global.monitor_interval` | `-t 60` |
 | `-o, --output` | - | 指定输出目录路径（必需） | `-o /tmp/output` |
 | `--platform` | - | 调度平台类型（`slurm` / `lsf` / `tianhe`） | `--platform lsf` |
 | `--accelerator` | - | 启用加速卡监控类型（`dcu` / `matrix` / `none`） | `--accelerator dcu` |
 | `--accelerator-interval` | - | 加速卡采样间隔（秒），默认使用 `-t` 值 | `--accelerator-interval 10` |
+| `--kernel-profile` | - | 在 `--script` 模式下启用 ISA dump + 二次 `rocprofv3` profile（首版仅 SLURM/DCU） | `--kernel-profile` |
+| `--profile-backend` | - | kernel profile 后端，当前支持 `rocprofv3` | `--profile-backend rocprofv3` |
+| `--profile-counters` | - | `rocprofv3` counter 组，分号分隔多组 | `"SQ_WAVES;GRBM_GUI_ACTIVE"` |
+| `--profile-rank-scope` | - | profile 的 MPI rank 范围（`rank0` / `all`），默认 `rank0` | `--profile-rank-scope all` |
+| `--profile-output-subdir` | - | kernel profile 输出子目录名，默认 `kernel_profile` | `--profile-output-subdir kp` |
 | `--config` | - | 测试配置文件路径（.yaml/.yml），启用多规模/支撑软件评测 | `--config test.yaml` |
 | `--init-config` | - | 生成 YAML 测试配置模板文件到当前目录 | `--init-config` |
 | `--force` | - | 跳过环境检测，仅用于调试 | `--force` |
@@ -125,6 +166,9 @@ chmod +x perfbench.py
 # 验证环境
 ./perfbench.py -v
 
+# 启动交互式演示入口
+./perfbench.py --interactive
+
 # 提交SLURM作业进行监控（60秒采集间隔）
 ./perfbench.py -s ./examples/test_programs/sample.slurm -t 60 -o /tmp/perfbench_results
 
@@ -133,6 +177,9 @@ chmod +x perfbench.py
 
 # 在海光 DCU 集群上提交作业并采集 DCU 指标（10秒采样间隔）
 ./perfbench.py -s ./examples/test_programs/sample.slurm -t 60 -o /tmp/perfbench_results --accelerator dcu --accelerator-interval 10
+
+# 在 SLURM + DCU/ROCm 环境中执行正式评测并追加二次 kernel profile
+./perfbench.py -s ./examples/test_programs/profile_marked.slurm -t 60 -o /tmp/perfbench_results --platform slurm --kernel-profile
 
 # 生成 YAML 多规模测试配置模板
 ./perfbench.py --init-config
@@ -146,11 +193,12 @@ chmod +x perfbench.py
 # 使用配置文件并覆盖登录节点监控采样间隔
 ./perfbench.py --config support_test.yaml -o /tmp/support_results -t 30
 
-# 如需内部核级粒度，请在配置文件中设置 global.granularity: core
+# 配置驱动流程支持节点级/卡级/内部核级并行度认定：
+# global.granularity 可设置为 node、board 或 core
 ./perfbench.py --config test_config_template.yaml -o /tmp/results
 ```
 
-配置驱动模式默认使用 YAML 中的 `global.monitor_interval` 作为登录节点监控采样间隔；未设置时默认 60 秒。命令行 `-t/--interval` 会覆盖该配置。多规模和支撑软件评测会按平台适配器统一流程解析脚本、注入监控、提交作业、等待完成，并从调度日志中解析每次运行的 `elapsed_seconds` 作为规模聚合与 before/after 指标计算输入。
+配置驱动模式默认使用 YAML 中的 `global.monitor_interval` 作为登录节点监控采样间隔；未设置时默认 60 秒。命令行 `-t/--interval` 会覆盖该配置。`global.granularity` 的 `node` 表示按节点数认定并行规模，`board` 表示按加速卡/核组认定，`core` 表示按处理器内部核认定。内部核级的规模计算使用 `hardware_registry.json` 中的 `boards_per_node` 和 `cores_per_card`，公式为 `节点数 × 每节点卡数/核组数 × 每卡内部核数`。多规模和支撑软件评测会按平台适配器统一流程解析脚本、注入监控、提交作业、等待完成，并从调度日志中解析每次运行的 `elapsed_seconds` 作为规模聚合与 before/after 指标计算输入。
 
 ## 输出说明
 
@@ -159,6 +207,8 @@ chmod +x perfbench.py
 | 文件/目录 | 说明 |
 |---------|------|
 | `modified_script.slurm` | 修改后的SLURM脚本（注入了监控代码） |
+| `slurm_<jobid>.out` | SLURM 标准输出（PerfBench 会将 `#SBATCH -o/--output` 重定向到当前结果目录） |
+| `slurm_<jobid>.err` | SLURM 标准错误（PerfBench 会将 `#SBATCH -e/--error` 重定向到当前结果目录） |
 | `monitor_data/` | 性能监控数据文件 |
 | `dcu_logs/` | 海光 DCU 监控日志（启用 DCU 监控时生成，每节点一个文件） |
 | `perfbench.log` | 详细的执行日志 |
@@ -167,6 +217,11 @@ chmod +x perfbench.py
 | `test_plan.md` | 测试大纲（`--config` 模式自动生成，符合§3.1） |
 | `test_report.md` | 完整评测报告（`--config` 模式自动生成，符合§3.2） |
 | `test_report.json` | 结构化评测结果（`--config` 模式自动生成） |
+| `isa_dump/` | ROCm runtime dump 的 kernel ISA 文件（启用 `--kernel-profile` 时生成） |
+| `kernel_profile/profile_script.slurm` | 二次 profile 专用作业脚本 |
+| `kernel_profile/rocprof/` | `rocprofv3` 输出目录 |
+| `kernel_profile/isa_static_summary.json` | PerfBench 对 ISA dump 的轻量静态分析摘要 |
+| `kernel_profile/kernel_profile_summary.json` | ISA 静态摘要、profile 作业信息和 `rocprofv3` CSV 汇总 |
 
 ### 性能报告内容
 
@@ -230,6 +285,17 @@ chmod +x perfbench.py
 - 🔄 **定期清理历史数据**：建议定期清理旧的监控结果以节省存储
 - 🔐 **权限检查**：确保对输出目录有写入权限
 - 🧪 **调试模式**：使用 `--force` 参数可跳过环境检查，仅用于开发调试
+
+## Kernel 级 Dump/Profile 说明
+
+`--kernel-profile` 当前只支持 `--script` 单作业模式和 `--platform slurm`。它会拆成两次调度作业：
+
+- 第一次为正式评测作业：按原流程计时和生成正式报告，同时注入 `ROCM_DUMP_ISA=1` 与 `ROCM_DUMP_ISA_DIR=<job_dir>/isa_dump`，保存 kernel ISA。
+- 第二次为 profile 专用作业：不参与正式计时，通过脚本中的 `__PERFBENCH_PROFILE__` 占位符调用共享目录下的 launcher，并由 `rocprofv3` 采集 kernel trace、stats 和 counter。
+
+PerfBench 对 dump 下来的 ISA 只做文本级静态分析，包括 kernel 文件数量、指令数量、VALU/SALU/VMEM/SMEM/LDS/branch/barrier 粗分类比例，以及可识别的 VGPR/SGPR/LDS 元信息。这些结果只能作为性能倾向线索，不能替代 `rocprofv3` 的实际耗时、实际 occupancy、cache miss 或 stall 信息。PerfBench 不自研 standalone kernel replay，counter 采集中的 replay/multi-pass 行为由 `rocprofv3` 内部处理。
+
+`test/slurm_dcu_overhead/kernel_smoke_profile.slurm` 和 `test/slurm_dcu_overhead/kernel_smoke_in.lj` 是面向该功能的短作业示例。脚本默认从 `SLURM_SUBMIT_DIR` 下查找输入文件；若不在仓库根目录提交，可设置 `PERFBENCH_REPO_ROOT=/path/to/PerfBench-BUAAHPC` 或 `PERFBENCH_LAMMPS_INPUT=/path/to/kernel_smoke_in.lj`。
 
 ## 加速卡监控说明
 
@@ -366,6 +432,7 @@ perfbench/
 ├── perfbench/
 │   ├── __init__.py
 │   ├── __main__.py           # CLI主程序
+│   ├── interactive_cli.py    # 命令行交互式演示入口
 │   ├── hardware_config.json  # 硬件基线配置文件
 │   ├── core/                 # 核心功能模块
 │   │   ├── initializer.py    # 环境初始化

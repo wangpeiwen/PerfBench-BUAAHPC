@@ -6,6 +6,7 @@ import argparse
 import sys
 
 from perfbench.core.initializer import initialize_environment
+from perfbench.interactive_cli import run_interactive_cli
 from perfbench.core.script_flow import run_script_flow
 from perfbench.core.validator import validate_environment
 from perfbench.orchestrator.config_flow import (
@@ -17,6 +18,8 @@ from perfbench.utils.logger import setup_logging
 
 PLATFORM_CHOICES = ("slurm", "lsf", "tianhe")
 ACCELERATOR_CHOICES = ("dcu", "matrix", "none")
+PROFILE_BACKEND_CHOICES = ("rocprofv3",)
+PROFILE_RANK_SCOPE_CHOICES = ("rank0", "all")
 
 
 def parse_arguments() -> argparse.ArgumentParser:
@@ -28,6 +31,11 @@ def parse_arguments() -> argparse.ArgumentParser:
     parser.add_argument("-t", "--interval", type=int, help="性能采集时间间隔（秒）")
     parser.add_argument("-o", "--output", type=str, help="输出目录路径")
     parser.add_argument("-v", action="store_true", help="运行工具适配性测试")
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="启动命令行交互式演示入口",
+    )
     parser.add_argument(
         "--force",
         action="store_true",
@@ -68,6 +76,35 @@ def parse_arguments() -> argparse.ArgumentParser:
         action="store_true",
         help="复制测试配置模板到当前目录",
     )
+    parser.add_argument(
+        "--kernel-profile",
+        action="store_true",
+        help="启用 kernel ISA dump 和二次 profile 运行（仅 --script 模式）",
+    )
+    parser.add_argument(
+        "--profile-backend",
+        choices=PROFILE_BACKEND_CHOICES,
+        default="rocprofv3",
+        help="kernel profile 后端，默认 rocprofv3",
+    )
+    parser.add_argument(
+        "--profile-counters",
+        type=str,
+        default=None,
+        help="rocprofv3 counter 组，分号分隔多组，例如 'SQ_WAVES;GRBM_GUI_ACTIVE'",
+    )
+    parser.add_argument(
+        "--profile-rank-scope",
+        choices=PROFILE_RANK_SCOPE_CHOICES,
+        default="rank0",
+        help="profile 的 MPI rank 范围，默认 rank0",
+    )
+    parser.add_argument(
+        "--profile-output-subdir",
+        type=str,
+        default="kernel_profile",
+        help="kernel profile 输出子目录名，默认 kernel_profile",
+    )
     parser.add_argument("--version", action="version", version="%(prog)s 1.0.0")
     return parser
 
@@ -79,6 +116,7 @@ def main() -> None:
     has_task = any([
         args.init,
         args.v,
+        args.interactive,
         args.init_config,
         args.config,
         args.script,
@@ -87,14 +125,25 @@ def main() -> None:
         parser.print_help()
         return
 
-    if args.script and (not args.interval or not args.output):
-        parser.error("--script 模式必须同时指定 --interval 和 --output")
-    if args.accelerator_interval is not None and args.accelerator is None:
-        parser.error("--accelerator-interval 必须和 --accelerator 一起使用")
+    if not args.interactive:
+        if args.script and (not args.interval or not args.output):
+            parser.error("--script 模式必须同时指定 --interval 和 --output")
+        if args.kernel_profile and not args.script:
+            parser.error("--kernel-profile 仅支持 --script 模式")
+        if args.kernel_profile and args.config:
+            parser.error("--kernel-profile 暂不支持 --config 模式")
+        if args.kernel_profile and args.platform != "slurm":
+            parser.error("--kernel-profile 首版仅支持 --platform slurm")
+        if args.accelerator_interval is not None and args.accelerator is None:
+            parser.error("--accelerator-interval 必须和 --accelerator 一起使用")
 
     logger = setup_logging()
 
     try:
+        if args.interactive:
+            run_interactive_cli(logger)
+            return
+
         if args.init:
             initialize_environment(force=args.force)
             return

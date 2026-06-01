@@ -1,0 +1,45 @@
+# Small Lennard-Jones melt workload for PerfBench kernel-profile smoke tests.
+#
+# This input is derived from 1m_in.lj but intentionally scaled down so a
+# SLURM + DCU run can quickly verify ROCm ISA dump and rocprofv3 collection.
+
+variable target_atoms equal 500000
+variable cells_per_tile equal 8
+variable units_per_dim equal ceil((${target_atoms}/4.0)^(1.0/3.0)/${cells_per_tile})
+variable run_steps equal 100
+
+variable xx equal ${cells_per_tile}*${units_per_dim}
+variable yy equal ${cells_per_tile}*${units_per_dim}
+variable zz equal ${cells_per_tile}*${units_per_dim}
+
+units           lj
+atom_style      atomic
+dimension       3
+boundary        p p p
+
+processors      * * *
+neighbor        1.0 bin
+neigh_modify    delay 0 every 1 check yes
+comm_modify     mode single vel yes
+
+lattice         fcc 0.8442
+region          box block 0 ${xx} 0 ${yy} 0 ${zz}
+create_box      1 box
+create_atoms    1 box
+mass            1 1.0
+
+velocity        all create 1.44 87287 loop geom
+
+pair_style      lj/cut 2.5
+pair_coeff      1 1 1.0 1.0 2.5
+
+fix             1 all nve
+
+thermo          20
+thermo_style    custom step atoms temp pe ke etotal press
+timer           full
+
+run             0
+print           "PerfBench kernel smoke workload: box=${xx}x${yy}x${zz}, atoms=$(count(all)), steps=${run_steps}"
+
+run             ${run_steps}

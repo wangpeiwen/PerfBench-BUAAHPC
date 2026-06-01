@@ -19,6 +19,13 @@ from datetime import datetime
 from typing import Optional
 
 
+GRANULARITY_LABELS = {
+    "node": "节点级",
+    "board": "卡级/板卡级",
+    "core": "内部核级",
+}
+
+
 def generate_test_plan(config: dict, hardware_config: Optional[dict],
                        output_dir: str) -> str:
     """
@@ -96,7 +103,9 @@ def generate_test_plan(config: dict, hardware_config: Optional[dict],
     lines.append(f"- 硬件名称：{hardware_name}")
     lines.append(f"- 处理器型号：{processor}")
     lines.append(f"- 加速卡类型：{accel_type}")
-    lines.append(f"- 测试粒度：{granularity}（{'板卡级' if granularity == 'board' else '内部核级'}）")
+    lines.append(
+        f"- 测试粒度：{granularity}（{_granularity_label(granularity)}）"
+    )
     scales = scaling_cfg.get("scales", [])
     if scales:
         lines.append(f"- 测试规模（节点数）：{scales}")
@@ -171,3 +180,7 @@ def generate_test_plan(config: dict, hardware_config: Optional[dict],
         f.write('\n'.join(lines))
 
     return plan_path
+
+
+def _granularity_label(granularity: str) -> str:
+    return GRANULARITY_LABELS.get(granularity, granularity)

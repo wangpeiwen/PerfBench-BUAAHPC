@@ -210,8 +210,58 @@ class SlurmAdapter(PlatformAdapter):
             job_id_env_name="SLURM_JOB_ID",
             accelerator_sampler_block=sampler_block,
         )
+        self._redirect_slurm_output(modified_script, output_dir)
         logger.info(f"[SLURM] 监控脚本已生成: {modified_script}")
         return modified_script
+
+    @staticmethod
+    def _redirect_slurm_output(script_path: str, output_dir: str) -> None:
+        """Ensure SLURM stdout/stderr files are written under output_dir."""
+        output_dir = os.path.abspath(output_dir)
+        stdout_path = os.path.join(output_dir, "slurm_%j.out")
+        stderr_path = os.path.join(output_dir, "slurm_%j.err")
+
+        with open(script_path, "r", encoding="utf-8") as handle:
+            lines = handle.readlines()
+
+        saw_stdout = False
+        saw_stderr = False
+        last_directive_idx = -1
+        rewritten = []
+
+        for idx, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.startswith("#SBATCH"):
+                last_directive_idx = len(rewritten)
+                if SlurmAdapter._is_slurm_output_directive(stripped):
+                    rewritten.append(f"#SBATCH --output={stdout_path}\n")
+                    saw_stdout = True
+                    continue
+                if SlurmAdapter._is_slurm_error_directive(stripped):
+                    rewritten.append(f"#SBATCH --error={stderr_path}\n")
+                    saw_stderr = True
+                    continue
+            rewritten.append(line)
+
+        insert_at = last_directive_idx + 1 if last_directive_idx >= 0 else 1
+        additions = []
+        if not saw_stdout:
+            additions.append(f"#SBATCH --output={stdout_path}\n")
+        if not saw_stderr:
+            additions.append(f"#SBATCH --error={stderr_path}\n")
+        if additions:
+            rewritten[insert_at:insert_at] = additions
+
+        with open(script_path, "w", encoding="utf-8") as handle:
+            handle.write("".join(rewritten))
+
+    @staticmethod
+    def _is_slurm_output_directive(line: str) -> bool:
+        return bool(re.match(r"^#SBATCH\s+(?:--output(?:=|\s)|-o(?:\s|$|=))", line))
+
+    @staticmethod
+    def _is_slurm_error_directive(line: str) -> bool:
+        return bool(re.match(r"^#SBATCH\s+(?:--error(?:=|\s)|-e(?:\s|$|=))", line))
 
     # ------------------------------------------------------------------
     # 作业提交
